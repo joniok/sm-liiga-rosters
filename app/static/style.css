@@ -1,0 +1,406 @@
+/* SM-liiga Kokoonpanot – Minimal Dark Theme */
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --gold: #ffd700;
+  --redbull: #db0a40;
+  --positive: #3fb950;
+  --negative: #f85149;
+  --line-bg: rgba(56, 68, 82, 0.3);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* Header */
+header {
+  text-align: center;
+  padding: 1.5rem 1rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+header h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+}
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.nav-btn {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.nav-btn:hover {
+  background: var(--surface-2);
+}
+
+.current-date {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* Main */
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.no-games {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-dim);
+}
+
+.no-games a {
+  color: var(--accent);
+}
+
+/* Game card */
+.game-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.5rem;
+  gap: 1.5rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.team {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.home-team {
+  justify-content: flex-end;
+}
+
+.away-team {
+  justify-content: flex-start;
+}
+
+.team-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.team-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.score-info {
+  text-align: center;
+  min-width: 80px;
+}
+
+.score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.finish-type {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-time {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* Rosters container: two columns */
+.rosters-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.team-roster {
+  padding: 0.75rem;
+}
+
+.team-roster:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.roster-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.25rem 0.5rem 0.5rem;
+  text-align: center;
+}
+
+/* Line groups */
+.line-group {
+  margin-bottom: 0.5rem;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--line-bg);
+}
+
+.line-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.3rem 0.5rem 0.15rem;
+}
+
+/* Player rows */
+.player-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.player-cell {
+  display: flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  gap: 0.25rem;
+  position: relative;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+  min-height: 32px;
+}
+
+.player-cell:last-child {
+  border-bottom: none;
+}
+
+.player-cell.golden-helmet {
+  background: rgba(255, 215, 0, 0.06);
+}
+
+.player-cell.u20-helmet {
+  border-left: 2px solid var(--redbull);
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.jersey {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  min-width: 28px;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  min-width: 18px;
+}
+
+.badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 2px;
+  vertical-align: super;
+}
+
+.badge.captain {
+  color: var(--gold);
+}
+
+.badge.alt-captain {
+  color: var(--text-dim);
+}
+
+/* Stats inline */
+.player-stats {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.player-stats span {
+  min-width: 20px;
+  text-align: right;
+}
+
+.stat-goals {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.stat-points {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stat-pm.positive {
+  color: var(--positive);
+}
+
+.stat-pm.negative {
+  color: var(--negative);
+}
+
+/* Goalie stats */
+.goalie-stats span {
+  min-width: auto;
+}
+
+/* Helmet badges */
+.helmet-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.helmet-badge.golden {
+  font-size: 0.85rem;
+}
+
+.helmet-badge.redbull {
+  color: var(--redbull);
+  font-size: 0.6rem;
+  border: 1px solid var(--redbull);
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
+/* Stats legend */
+.stats-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+
+.legend-helmet.golden {
+  color: var(--gold);
+}
+
+.legend-helmet.redbull {
+  color: var(--redbull);
+}
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .rosters-container {
+    grid-template-columns: 1fr;
+  }
+
+  .team-roster:first-child {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .game-header {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .team-name {
+    font-size: 0.85rem;
+  }
+
+  .team-logo {
+    width: 28px;
+    height: 28px;
+  }
+
+  .player-stats {
+    gap: 0.25rem;
+    font-size: 0.65rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .player-info {
+    min-width: 90px;
+  }
+
+  .player-stats span {
+    min-width: 16px;
+  }
+}
