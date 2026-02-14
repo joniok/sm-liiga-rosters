@@ -794,7 +794,27 @@ footer a {
 }
 
 @media (max-width: 480px) {
+  .player-cell {
+    flex-wrap: wrap;
+  }
+
   .player-info {
-    min-width: 90px;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .player-stats {
+    padding-left: 28px; /* align with player name past jersey number */
+    width: 100%;
+  }
+
+  .match-stats {
+    margin-left: 28px;
+  }
+
+  .goalie-stats {
+    grid-template-columns: auto auto auto auto auto;
+    justify-content: start;
+    padding-left: 28px;
   }
 }
