@@ -142,15 +142,15 @@ FORWARD_ROLES = {"LEFT_WING", "RIGHT_WING", "CENTER"}
 DEFENSE_ROLES = {"LEFT_DEFENSEMAN", "RIGHT_DEFENSEMAN", "DEFENSEMAN"}
 GOALIE_ROLES = {"GOALIE"}
 
-# Short role labels for display
+# Short role labels for display (Finnish abbreviations)
 ROLE_SHORT = {
-    "LEFT_WING": "LW",
-    "RIGHT_WING": "RW",
-    "CENTER": "C",
-    "LEFT_DEFENSEMAN": "LD",
-    "RIGHT_DEFENSEMAN": "RD",
-    "DEFENSEMAN": "D",
-    "GOALIE": "G",
+    "LEFT_WING": "VLH",
+    "RIGHT_WING": "OLH",
+    "CENTER": "KH",
+    "LEFT_DEFENSEMAN": "VP",
+    "RIGHT_DEFENSEMAN": "OP",
+    "DEFENSEMAN": "P",
+    "GOALIE": "MV",
 }
 
 # Role codes from stats API

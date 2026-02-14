@@ -42,34 +42,7 @@ header h1 {
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text);
-  margin-bottom: 0.75rem;
-}
-
-.date-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.nav-btn {
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  transition: background 0.15s;
-}
-
-.nav-btn:hover {
-  background: var(--surface-2);
-}
-
-.current-date {
-  font-weight: 600;
-  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
 }
 
 /* Main */
@@ -77,6 +50,56 @@ main {
   max-width: 1200px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-date {
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
 }
 
 .no-games {
@@ -87,6 +110,29 @@ main {
 
 .no-games a {
   color: var(--accent);
+}
+
+/* Round sub-heading (used when next round is not today) */
+.round-heading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.5rem 0 0.75rem;
+  text-align: center;
+}
+
+/* No games today banner */
+.no-games-today {
+  text-align: center;
+  padding: 1.25rem 1rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 1.5rem 0;
 }
 
 /* Game card */
@@ -334,17 +380,6 @@ main {
   color: var(--gold);
 }
 
-/* Past-round label */
-.past-round-label {
-  text-align: center;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-dim);
-  padding: 0.5rem 0;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 /* Penalty minutes in season stats */
 .stat-pim {
   color: var(--gold);
@@ -353,16 +388,51 @@ main {
 /* Stats inline */
 .player-stats {
   display: flex;
-  gap: 0.4rem;
+  gap: 0;
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
   flex-shrink: 0;
 }
 
-.player-stats span {
-  min-width: 20px;
+.player-stats > span,
+.player-stats > .stat-scoring {
   text-align: right;
+  flex-shrink: 0;
+}
+
+/* Fixed column widths for alignment */
+.player-stats > span:first-child { /* games */
+  width: 22px;
+}
+
+.stat-scoring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.1rem;
+  white-space: nowrap;
+  width: 68px;
+}
+
+.stat-scoring > span {
+  text-align: right;
+}
+
+.stat-scoring > .stat-goals,
+.stat-scoring > span:nth-child(3) { /* assists */
+  min-width: 14px;
+}
+
+.stat-scoring > .stat-points {
+  min-width: 16px;
+}
+
+.stat-sep {
+  color: var(--text-dim);
+  opacity: 0.5;
+  font-size: 0.55rem;
+  min-width: 0 !important;
 }
 
 .stat-goals {
@@ -375,6 +445,18 @@ main {
   font-weight: 600;
 }
 
+.stat-pm {
+  width: 26px;
+}
+
+.stat-pim {
+  width: 24px;
+}
+
+.stat-toi {
+  width: 34px;
+}
+
 .stat-pm.positive {
   color: var(--positive);
 }
@@ -383,64 +465,52 @@ main {
   color: var(--negative);
 }
 
-/* Goalie stats */
-.goalie-stats span {
+/* Goalie stats – own grid for clean alignment */
+.goalie-stats {
+  display: grid !important;
+  grid-template-columns: 52px 44px 34px 50px 18px;
+  gap: 0.25rem;
+}
+
+.goalie-stats > span {
+  text-align: right;
+  white-space: nowrap;
+  width: auto;
   min-width: auto;
-}
-
-/* Future games – compact cards */
-.future-games {
-  margin-top: 1rem;
-}
-
-.future-heading {
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-  padding: 0.5rem 0;
-  text-align: center;
-}
-
-.compact-game {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.6rem 1rem;
-  gap: 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 0.5rem;
-}
-
-.compact-game .team {
-  flex: 1;
-}
-
-.compact-game .team-logo {
-  width: 28px;
-  height: 28px;
-}
-
-.compact-game .team-name {
-  font-size: 0.9rem;
-}
-
-.compact-game .score-info {
-  min-width: 60px;
 }
 
 /* Stats legend */
 .stats-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
+  justify-content: center;
+  gap: 0.4rem 0;
+  padding: 0.6rem 0.75rem;
   font-size: 0.65rem;
   color: var(--text-dim);
   border-top: 1px solid var(--border);
+}
+
+.stats-legend > span {
+  white-space: nowrap;
+  padding: 0 0.5rem;
+  border-right: 1px solid var(--border);
+}
+
+.stats-legend > span:last-child {
+  border-right: none;
+}
+
+.goalie-legend {
+  border-top: none;
+  padding-top: 0;
+}
+
+.goalie-legend > span:first-child {
+  font-weight: 600;
+  color: var(--accent);
+  border-right: none;
+  padding-right: 0;
 }
 
 .legend-helmet.golden {
@@ -490,17 +560,28 @@ footer a {
   }
 
   .player-stats {
-    gap: 0.25rem;
     font-size: 0.65rem;
+  }
+
+  .stat-scoring {
+    width: 60px;
+  }
+
+  .stat-pm {
+    width: 24px;
+  }
+
+  .stat-pim {
+    width: 22px;
+  }
+
+  .stat-toi {
+    width: 30px;
   }
 }
 
 @media (max-width: 480px) {
   .player-info {
     min-width: 90px;
-  }
-
-  .player-stats span {
-    min-width: 16px;
   }
 }
