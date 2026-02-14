@@ -30,6 +30,13 @@
     {% endif %}
   </div>
 {% else %}
+
+  {# ── Show past-date label if we fell back to a previous round ── #}
+  {% if past_date_fi %}
+  <div class="past-round-label">Viimeisin kierros – {{ past_date_fi }}</div>
+  {% endif %}
+
+  {# ── Played / ongoing games with full rosters ── #}
   {% for rv in roster_views %}
   <section class="game-card">
     <div class="game-header">
@@ -69,71 +76,43 @@
         <div class="line-group">
           <div class="line-label">{{ line.lineNum }}. kenttä</div>
 
-          {# Forwards row #}
-          {% if line.forwards %}
-          <div class="player-row forwards-row">
-            {% for p in line.forwards %}
-            <div class="player-cell {{ 'golden-helmet' if p.isGoldenHelmet else '' }} {{ 'u20-helmet' if p.isU20 else '' }}">
+          {# ── Macro-like: render a skater cell ── #}
+          {% for group in [line.forwards, line.defensemen] %}
+          {% if group %}
+          <div class="player-row">
+            {% for p in group %}
+            <div class="player-cell {{ 'golden-helmet' if p.isGoldenHelmet else '' }} {{ 'u20-best' if p.isBestU20 else '' }}">
               <div class="player-info">
                 <span class="jersey">#{{ p.jersey }}</span>
-                <span class="player-name">
-                  {{ p.firstName[0] }}. {{ p.lastName }}
-                  {% if p.captain %}<span class="badge captain">C</span>{% endif %}
-                  {% if p.alternateCaptain %}<span class="badge alt-captain">A</span>{% endif %}
-                </span>
+                <span class="player-name">{{ p.firstName }} {{ p.lastName }}</span>
                 <span class="role">{{ p.roleShort }}</span>
+                {% if p.captain %}<span class="badge captain">C</span>{% endif %}
+                {% if p.alternateCaptain %}<span class="badge alt-captain">A</span>{% endif %}
+                {% if p.isGoldenHelmet %}<span class="badge golden" title="Kultakypärä – ottelun paras pistemies">&#x1F451;</span>{% endif %}
+                {% if p.isBestU20 %}<span class="badge redbull" title="Red Bull U20">U20</span>{% endif %}
               </div>
+              {% if p.hasMatchStats %}
+              <div class="match-stats">
+                {% if p.matchGoals %}<span class="ms-g">{{ p.matchGoals }}G</span>{% endif %}
+                {% if p.matchAssists %}<span class="ms-a">{{ p.matchAssists }}A</span>{% endif %}
+                {% if p.matchPlusMinus %}<span class="ms-pm {{ 'positive' if p.matchPlusMinus > 0 else 'negative' }}">{{ '%+d' % p.matchPlusMinus }}</span>{% endif %}
+                {% if p.matchPIM %}<span class="ms-pim">{{ p.matchPIM }}'</span>{% endif %}
+              </div>
+              {% endif %}
               <div class="player-stats">
                 <span title="Ottelut">{{ p.games }}</span>
                 <span title="Maalit" class="stat-goals">{{ p.goals }}</span>
                 <span title="Syötöt">{{ p.assists }}</span>
                 <span title="Pisteet" class="stat-points">{{ p.points }}</span>
                 <span title="+/-" class="stat-pm {{ 'positive' if p.plusMinus > 0 else 'negative' if p.plusMinus < 0 else '' }}">{{ '%+d' % p.plusMinus }}</span>
+                {% if p.penaltyMinutes %}<span title="Jäähy" class="stat-pim">{{ p.penaltyMinutes }}'</span>{% endif %}
                 <span title="Jääaika/ottelu">{{ p.timeOnIceAvg }}</span>
               </div>
-              {% if p.isGoldenHelmet %}
-              <div class="helmet-badge golden" title="Kultakypärä – ottelun paras pistemies">&#x1F451;</div>
-              {% endif %}
-              {% if p.isU20 %}
-              <div class="helmet-badge redbull" title="Red Bull U20">U20</div>
-              {% endif %}
             </div>
             {% endfor %}
           </div>
           {% endif %}
-
-          {# Defensemen row #}
-          {% if line.defensemen %}
-          <div class="player-row defense-row">
-            {% for p in line.defensemen %}
-            <div class="player-cell {{ 'golden-helmet' if p.isGoldenHelmet else '' }} {{ 'u20-helmet' if p.isU20 else '' }}">
-              <div class="player-info">
-                <span class="jersey">#{{ p.jersey }}</span>
-                <span class="player-name">
-                  {{ p.firstName[0] }}. {{ p.lastName }}
-                  {% if p.captain %}<span class="badge captain">C</span>{% endif %}
-                  {% if p.alternateCaptain %}<span class="badge alt-captain">A</span>{% endif %}
-                </span>
-                <span class="role">{{ p.roleShort }}</span>
-              </div>
-              <div class="player-stats">
-                <span title="Ottelut">{{ p.games }}</span>
-                <span title="Maalit" class="stat-goals">{{ p.goals }}</span>
-                <span title="Syötöt">{{ p.assists }}</span>
-                <span title="Pisteet" class="stat-points">{{ p.points }}</span>
-                <span title="+/-" class="stat-pm {{ 'positive' if p.plusMinus > 0 else 'negative' if p.plusMinus < 0 else '' }}">{{ '%+d' % p.plusMinus }}</span>
-                <span title="Jääaika/ottelu">{{ p.timeOnIceAvg }}</span>
-              </div>
-              {% if p.isGoldenHelmet %}
-              <div class="helmet-badge golden" title="Kultakypärä – ottelun paras pistemies">&#x1F451;</div>
-              {% endif %}
-              {% if p.isU20 %}
-              <div class="helmet-badge redbull" title="Red Bull U20">U20</div>
-              {% endif %}
-            </div>
-            {% endfor %}
-          </div>
-          {% endif %}
+          {% endfor %}
         </div>
         {% endfor %}
 
@@ -143,15 +122,15 @@
           <div class="line-label">Maalivahdit</div>
           <div class="player-row goalie-row">
             {% for p in side.goalies %}
-            <div class="player-cell goalie-cell {{ 'golden-helmet' if p.isGoldenHelmet else '' }} {{ 'u20-helmet' if p.isU20 else '' }}">
+            <div class="player-cell goalie-cell {{ 'goalie-starter' if p.isStarter else '' }} {{ 'golden-helmet' if p.isGoldenHelmet else '' }}">
               <div class="player-info">
                 <span class="jersey">#{{ p.jersey }}</span>
-                <span class="player-name">
-                  {{ p.firstName[0] }}. {{ p.lastName }}
-                  {% if p.captain %}<span class="badge captain">C</span>{% endif %}
-                  {% if p.alternateCaptain %}<span class="badge alt-captain">A</span>{% endif %}
-                </span>
+                <span class="player-name">{{ p.firstName }} {{ p.lastName }}</span>
                 <span class="role">MV</span>
+                {% if p.isStarter %}<span class="badge starter" title="Aloittava maalivahti">&#9733;</span>{% endif %}
+                {% if p.captain %}<span class="badge captain">C</span>{% endif %}
+                {% if p.alternateCaptain %}<span class="badge alt-captain">A</span>{% endif %}
+                {% if p.isGoldenHelmet %}<span class="badge golden" title="Kultakypärä">&#x1F451;</span>{% endif %}
               </div>
               <div class="player-stats goalie-stats">
                 <span title="Ottelut">{{ p.games }}ott</span>
@@ -160,12 +139,6 @@
                 <span title="Voitot-Tappiot">{{ p.gkWins }}V-{{ p.gkLosses }}H</span>
                 <span title="Nollapelit">{{ p.shutOut }}SO</span>
               </div>
-              {% if p.isGoldenHelmet %}
-              <div class="helmet-badge golden" title="Kultakypärä">&#x1F451;</div>
-              {% endif %}
-              {% if p.isU20 %}
-              <div class="helmet-badge redbull" title="Red Bull U20">U20</div>
-              {% endif %}
             </div>
             {% endfor %}
           </div>
@@ -183,6 +156,7 @@
       <span>S = Syötöt</span>
       <span>P = Pisteet</span>
       <span>+/- = Plus/Miinus</span>
+      <span>' = Jäähyminuutit</span>
       <span>TOI = Jääaika/ottelu</span>
       <span class="legend-helmet golden">&#x1F451; = Kultakypärä</span>
       <span class="legend-helmet redbull">U20 = Red Bull U20</span>
@@ -190,6 +164,33 @@
 
   </section>
   {% endfor %}
+
+  {# ── Future games – compact cards ── #}
+  {% if future_views %}
+  <section class="future-games">
+    <h2 class="future-heading">Tulevat ottelut</h2>
+    {% for fg in future_views %}
+    <div class="compact-game">
+      <div class="team home-team">
+        {% if fg.homeTeam.logos and fg.homeTeam.logos.darkBg %}
+        <img src="{{ fg.homeTeam.logos.darkBg }}" alt="{{ fg.homeTeam.teamName }}" class="team-logo">
+        {% endif %}
+        <span class="team-name">{{ fg.homeTeam.teamName }}</span>
+      </div>
+      <div class="score-info">
+        {% set start_hour = fg.start[11:13]|int + 2 %}
+        <span class="game-time">{{ '%02d' % start_hour }}:{{ fg.start[14:16] }}</span>
+      </div>
+      <div class="team away-team">
+        {% if fg.awayTeam.logos and fg.awayTeam.logos.darkBg %}
+        <img src="{{ fg.awayTeam.logos.darkBg }}" alt="{{ fg.awayTeam.teamName }}" class="team-logo">
+        {% endif %}
+        <span class="team-name">{{ fg.awayTeam.teamName }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
 {% endif %}
 </main>
 

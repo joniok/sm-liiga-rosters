@@ -224,8 +224,13 @@ main {
   background: rgba(255, 215, 0, 0.06);
 }
 
-.player-cell.u20-helmet {
+.player-cell.u20-best {
   border-left: 2px solid var(--redbull);
+}
+
+.player-cell.goalie-starter {
+  background: rgba(88, 166, 255, 0.08);
+  border-left: 2px solid var(--accent);
 }
 
 .player-info {
@@ -264,6 +269,7 @@ main {
   padding: 0 3px;
   border-radius: 2px;
   vertical-align: super;
+  flex-shrink: 0;
 }
 
 .badge.captain {
@@ -272,6 +278,76 @@ main {
 
 .badge.alt-captain {
   color: var(--text-dim);
+}
+
+.badge.starter {
+  color: var(--accent);
+  font-size: 0.7rem;
+}
+
+.badge.golden {
+  font-size: 0.75rem;
+}
+
+.badge.redbull {
+  color: var(--redbull);
+  border: 1px solid var(--redbull);
+  border-radius: 3px;
+  line-height: 1.4;
+  font-size: 0.55rem;
+}
+
+/* Match-specific stats (highlighted) */
+.match-stats {
+  display: flex;
+  gap: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  background: rgba(255, 215, 0, 0.10);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.match-stats span {
+  white-space: nowrap;
+}
+
+.ms-g {
+  color: var(--text);
+}
+
+.ms-a {
+  color: var(--accent);
+}
+
+.ms-pm.positive {
+  color: var(--positive);
+}
+
+.ms-pm.negative {
+  color: var(--negative);
+}
+
+.ms-pim {
+  color: var(--gold);
+}
+
+/* Past-round label */
+.past-round-label {
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 0.5rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Penalty minutes in season stats */
+.stat-pim {
+  color: var(--gold);
 }
 
 /* Stats inline */
@@ -312,24 +388,48 @@ main {
   min-width: auto;
 }
 
-/* Helmet badges */
-.helmet-badge {
-  font-size: 0.7rem;
-  font-weight: 700;
-  flex-shrink: 0;
+/* Future games – compact cards */
+.future-games {
+  margin-top: 1rem;
 }
 
-.helmet-badge.golden {
+.future-heading {
   font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.5rem 0;
+  text-align: center;
 }
 
-.helmet-badge.redbull {
-  color: var(--redbull);
-  font-size: 0.6rem;
-  border: 1px solid var(--redbull);
-  border-radius: 3px;
-  padding: 0 3px;
-  line-height: 1.4;
+.compact-game {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.compact-game .team {
+  flex: 1;
+}
+
+.compact-game .team-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.compact-game .team-name {
+  font-size: 0.9rem;
+}
+
+.compact-game .score-info {
+  min-width: 60px;
 }
 
 /* Stats legend */
