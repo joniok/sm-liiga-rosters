@@ -220,11 +220,13 @@ async def collect_playoff_games_for_board(anchor: date) -> list[dict]:
 
 
 def playoff_phase_label_fi(phase: int) -> str:
-    """Round titles aligned with typical Liiga playoff wording."""
+    """Liiga playOffPhase → section title (matches Liiga.fi naming)."""
     return {
-        1: "Puolivälierät",
-        2: "Välierät",
-        3: "Mitalisarjat",
+        1: "1. Kierros",
+        2: "Puolivälierät",
+        3: "Välierät",
+        4: "Pronssiottelu",
+        5: "Finaalit",
     }.get(phase, f"Vaihe {phase}")
 
 
@@ -330,7 +332,6 @@ def build_playoff_series_rows(games: list[dict]) -> list[dict[str, Any]]:
             "team2": {"name": t2["name"], "logo": t2["logo"], "wins": w2},
             "best_of_label": _best_of_fi(req_i),
             "req_wins": req_i,
-            "progress": f"{max(w1, w2)}/{req_i}",
             "decided": decided,
         })
 

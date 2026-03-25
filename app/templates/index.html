@@ -30,7 +30,7 @@
       {% for s in phase.series %}
       <article class="ps-card{% if s.decided %} ps-card--decided{% endif %}">
         <div class="ps-card-main">
-          <div class="ps-side ps-side--left">
+          <div class="ps-side ps-side--left{% if s.decided and s.team2.wins >= s.req_wins %} ps-side--eliminated{% endif %}">
             {% if s.team1.logo %}
             <img src="{{ s.team1.logo }}" alt="" class="ps-logo" width="36" height="36">
             {% endif %}
@@ -38,9 +38,8 @@
           </div>
           <div class="ps-score-block">
             <span class="ps-score">{{ s.team1.wins }}–{{ s.team2.wins }}</span>
-            <span class="ps-progress">{{ s.progress }}</span>
           </div>
-          <div class="ps-side ps-side--right">
+          <div class="ps-side ps-side--right{% if s.decided and s.team1.wins >= s.req_wins %} ps-side--eliminated{% endif %}">
             <span class="ps-name">{{ s.team2.name }}</span>
             {% if s.team2.logo %}
             <img src="{{ s.team2.logo }}" alt="" class="ps-logo" width="36" height="36">
