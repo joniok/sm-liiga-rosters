@@ -1,18 +1,33 @@
 """Client for the Liiga.fi API v2."""
 
 import asyncio
+from collections import Counter
 import httpx
 import time
 from datetime import date, datetime
+from itertools import groupby
 from typing import Any
 
 LIIGA_API_BASE = "https://liiga.fi/api/v2"
 TIMEOUT = 30.0
 
+TOURNAMENT_REGULAR = "runkosarja"
+TOURNAMENT_PLAYOFFS = "playoffs"
+
+# Next runkosarja game farther out than this → treat regular season as over for navigation
+RUNKOSARJA_UPCOMING_HORIZON_DAYS = 200
+# Playoff calendar considered “active” if prev/next game falls within this window of today
+PLAYOFF_CALENDAR_WINDOW_DAYS = 45
+
 # Simple TTL cache for season stats (they don't change often)
 _cache: dict[str, tuple[float, Any]] = {}
 CACHE_TTL = 300  # 5 minutes
 CACHE_TTL_LONG = 3600  # 1 hour – for data that rarely changes
+
+# Playoff series board: walk Liiga game-day chain (each step = one API call)
+MAX_PLAYOFF_CHAIN_STEPS = 52
+_po_games_cache: dict[str, tuple[float, list[dict]]] = {}
+PO_GAMES_CACHE_TTL = 240  # seconds
 
 
 async def _get(path: str, params: dict | None = None) -> Any:
@@ -38,7 +53,7 @@ async def _get_cached(cache_key: str, path: str, params: dict | None = None,
     return data
 
 
-async def get_games_for_date(game_date: date, tournament: str = "runkosarja") -> dict:
+async def get_games_for_date(game_date: date, tournament: str = TOURNAMENT_REGULAR) -> dict:
     """Fetch all games for a given date.
 
     Returns dict with keys: games, previousGameDate, nextGameDate.
@@ -54,7 +69,7 @@ async def get_game_detail(season: int, game_id: int) -> dict:
     return await _get(f"/games/{season}/{game_id}")
 
 
-async def get_season_stats(season: int, tournament: str = "runkosarja") -> list[dict]:
+async def get_season_stats(season: int, tournament: str = TOURNAMENT_REGULAR) -> list[dict]:
     """Fetch all player season stats (skaters + goalies combined)."""
     cache_key = f"stats-{season}-{tournament}"
     return await _get_cached(cache_key, f"/players/stats/summed/{season}/{season}/{tournament}/true")
@@ -70,6 +85,271 @@ async def get_player_game_log(player_id: int, season: int) -> dict:
     return await _get_cached(
         cache_key, f"/players/info/{player_id}/games/{season}", ttl=CACHE_TTL_LONG,
     )
+
+
+def subtract_match_from_season_column(game_detail: dict, stats_tournament: str) -> bool:
+    """Whether season columns should be (season total − this game)."""
+    is_po = (game_detail.get("game", {}).get("serie") or "").upper() == "PLAYOFFS"
+    if stats_tournament == TOURNAMENT_PLAYOFFS:
+        return is_po
+    if stats_tournament == TOURNAMENT_REGULAR:
+        return not is_po
+    return True
+
+
+def _game_log_key_for_detail(game_detail: dict) -> str:
+    """Which segment in /players/info/.../games/{season} holds this game's stats."""
+    game = game_detail.get("game", {}) if isinstance(game_detail, dict) else {}
+    if (game.get("serie") or "").upper() == "PLAYOFFS":
+        return "playoffs"
+    return "regular"
+
+
+async def is_runkosarja_schedule_active(game_day: date) -> bool:
+    """True if runkosarja still has games today or a scheduled upcoming game this season."""
+    data = await get_games_for_date(game_day, TOURNAMENT_REGULAR)
+    if data.get("games"):
+        return True
+    nd = data.get("nextGameDate")
+    if not nd:
+        return False
+    try:
+        nd_d = datetime.strptime(nd, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False
+    if nd_d < game_day:
+        return False
+    return (nd_d - game_day).days <= RUNKOSARJA_UPCOMING_HORIZON_DAYS
+
+
+async def is_playoffs_calendar_near(game_day: date) -> bool:
+    """True if the playoff bracket has (or recently/upcoming had) games around this date."""
+    po = await get_games_for_date(game_day, TOURNAMENT_PLAYOFFS)
+    if po.get("games"):
+        return True
+    for key in ("previousGameDate", "nextGameDate"):
+        dstr = po.get(key)
+        if not dstr:
+            continue
+        try:
+            d = datetime.strptime(dstr, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        if abs((d - game_day).days) <= PLAYOFF_CALENDAR_WINDOW_DAYS:
+            return True
+    return False
+
+
+async def use_playoffs_for_games(game_day: date) -> bool:
+    """Use playoff fixtures and playoff stats when regular season is over and playoffs are on."""
+    if await is_runkosarja_schedule_active(game_day):
+        return False
+    return await is_playoffs_calendar_near(game_day)
+
+
+async def _walk_playoff_one_direction(anchor: date, direction: str) -> set[date]:
+    """Follow Liiga playoff previousGameDate or nextGameDate chain from anchor."""
+    dates: set[date] = set()
+    current = anchor
+    seen_dir: set[date] = set()
+    key = "previousGameDate" if direction == "prev" else "nextGameDate"
+    for _ in range(MAX_PLAYOFF_CHAIN_STEPS):
+        if current in seen_dir:
+            break
+        seen_dir.add(current)
+        dates.add(current)
+        data = await get_games_for_date(current, TOURNAMENT_PLAYOFFS)
+        nxt = data.get(key)
+        if not nxt:
+            break
+        try:
+            current = datetime.strptime(nxt, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            break
+    return dates
+
+
+async def _walk_playoff_date_chain(anchor: date) -> set[date]:
+    """All playoff calendar dates reachable via prev/next navigation from anchor (both directions)."""
+    back, fwd = await asyncio.gather(
+        _walk_playoff_one_direction(anchor, "prev"),
+        _walk_playoff_one_direction(anchor, "next"),
+    )
+    return back | fwd
+
+
+async def collect_playoff_games_for_board(anchor: date) -> list[dict]:
+    """All playoff list games for the dominant season, discovered via date-chain walk."""
+    cache_key = anchor.isoformat()
+    now = time.time()
+    if cache_key in _po_games_cache:
+        ts, cached = _po_games_cache[cache_key]
+        if now - ts < PO_GAMES_CACHE_TTL:
+            return cached
+
+    date_set = await _walk_playoff_date_chain(anchor)
+    sem = asyncio.Semaphore(14)
+
+    async def _fetch_day(d: date) -> dict:
+        async with sem:
+            return await get_games_for_date(d, TOURNAMENT_PLAYOFFS)
+
+    payloads = await asyncio.gather(*[_fetch_day(d) for d in date_set])
+    by_id: dict[int, dict] = {}
+    for data in payloads:
+        for g in data.get("games", []):
+            if (g.get("serie") or "").upper() != "PLAYOFFS":
+                continue
+            gid = g.get("id")
+            if gid is not None:
+                by_id[gid] = g
+
+    games = list(by_id.values())
+    if not games:
+        _po_games_cache[cache_key] = (now, games)
+        return games
+
+    season_counts = Counter(g.get("season") for g in games if g.get("season") is not None)
+    if not season_counts:
+        _po_games_cache[cache_key] = (now, games)
+        return games
+    main_season = season_counts.most_common(1)[0][0]
+    filtered = [g for g in games if g.get("season") == main_season]
+    _po_games_cache[cache_key] = (now, filtered)
+    return filtered
+
+
+def playoff_phase_label_fi(phase: int) -> str:
+    """Round titles aligned with typical Liiga playoff wording."""
+    return {
+        1: "Puolivälierät",
+        2: "Välierät",
+        3: "Mitalisarjat",
+    }.get(phase, f"Vaihe {phase}")
+
+
+def _best_of_fi(req_wins: int) -> str:
+    rw = int(req_wins) if req_wins else 3
+    spelled = {3: "viidestä", 4: "seitsemästä", 5: "yhdeksästä"}
+    if rw in spelled:
+        return f"Paras {spelled[rw]}"
+    return f"{rw} voittoon"
+
+
+def _min_team_ranking(games: list[dict], team_id: str) -> int:
+    r = 99
+    for g in games:
+        for side in ("homeTeam", "awayTeam"):
+            t = g.get(side) or {}
+            if t.get("teamId") != team_id:
+                continue
+            rank = t.get("ranking")
+            if rank is not None:
+                r = min(r, int(rank))
+    return r
+
+
+def _team_slice_from_games(games: list[dict], team_id: str) -> dict[str, Any]:
+    for g in games:
+        for side in ("homeTeam", "awayTeam"):
+            t = g.get(side) or {}
+            if t.get("teamId") == team_id:
+                logos = t.get("logos") or {}
+                return {
+                    "teamId": team_id,
+                    "name": t.get("teamName") or "",
+                    "logo": logos.get("darkBg") or logos.get("lightBg"),
+                }
+    return {"teamId": team_id, "name": "", "logo": None}
+
+
+def build_playoff_series_rows(games: list[dict]) -> list[dict[str, Any]]:
+    """One row per (playOffPhase, playOffPair) with win counts and formatting for the template."""
+    by_key: dict[tuple[int, int], list[dict]] = {}
+    for g in games:
+        ph = g.get("playOffPhase")
+        pr = g.get("playOffPair")
+        if ph is None or pr is None:
+            continue
+        by_key.setdefault((int(ph), int(pr)), []).append(g)
+
+    rows: list[dict[str, Any]] = []
+    for (phase, pair), gs in by_key.items():
+        gs_sorted = sorted(
+            gs,
+            key=lambda x: x.get("start") or "",
+        )
+        team_ids: set[str] = set()
+        for g in gs_sorted:
+            ht = (g.get("homeTeam") or {}).get("teamId")
+            at = (g.get("awayTeam") or {}).get("teamId")
+            if ht:
+                team_ids.add(ht)
+            if at:
+                team_ids.add(at)
+        if len(team_ids) != 2:
+            continue
+
+        ids = list(team_ids)
+        ranked = sorted(
+            ids,
+            key=lambda tid: (_min_team_ranking(gs_sorted, tid), tid),
+        )
+        tid_a, tid_b = ranked[0], ranked[1]
+
+        wins: dict[str, int] = {tid_a: 0, tid_b: 0}
+        for g in gs_sorted:
+            if not g.get("ended"):
+                continue
+            h = g.get("homeTeam") or {}
+            a = g.get("awayTeam") or {}
+            hid, aid = h.get("teamId"), a.get("teamId")
+            if not hid or not aid:
+                continue
+            hg = int(h.get("goals") or 0)
+            ag = int(a.get("goals") or 0)
+            if hg > ag and hid in wins:
+                wins[hid] += 1
+            elif ag > hg and aid in wins:
+                wins[aid] += 1
+
+        req = gs_sorted[0].get("playOffReqWins") or 3
+        try:
+            req_i = int(req)
+        except (TypeError, ValueError):
+            req_i = 3
+        w1, w2 = wins.get(tid_a, 0), wins.get(tid_b, 0)
+        decided = w1 >= req_i or w2 >= req_i
+
+        t1 = _team_slice_from_games(gs_sorted, tid_a)
+        t2 = _team_slice_from_games(gs_sorted, tid_b)
+        rows.append({
+            "phase": phase,
+            "pair": pair,
+            "team1": {"name": t1["name"], "logo": t1["logo"], "wins": w1},
+            "team2": {"name": t2["name"], "logo": t2["logo"], "wins": w2},
+            "best_of_label": _best_of_fi(req_i),
+            "req_wins": req_i,
+            "progress": f"{max(w1, w2)}/{req_i}",
+            "decided": decided,
+        })
+
+    rows.sort(key=lambda r: (r["phase"], r["pair"]))
+    return rows
+
+
+async def get_playoff_series_board(anchor: date) -> list[dict[str, Any]]:
+    """Grouped phase sections for the playoff summary strip (Liiga.fi–style)."""
+    games = await collect_playoff_games_for_board(anchor)
+    rows = build_playoff_series_rows(games)
+    out: list[dict[str, Any]] = []
+    for phase, grp in groupby(rows, key=lambda r: r["phase"]):
+        out.append({
+            "phase": phase,
+            "phase_label": playoff_phase_label_fi(int(phase)),
+            "series": list(grp),
+        })
+    return out
 
 
 async def get_match_stats_for_game(
@@ -93,12 +373,16 @@ async def get_match_stats_for_game(
 
     sem = asyncio.Semaphore(25)
 
+    log_key = _game_log_key_for_detail(game_detail)
+
     async def _fetch_one(pid: int) -> tuple[int, dict | None]:
         async with sem:
             try:
                 data = await get_player_game_log(pid, season)
-                regular = data.get("regular", []) if isinstance(data, dict) else []
-                for entry in regular:
+                entries = data.get(log_key, []) if isinstance(data, dict) else []
+                if not entries and log_key == "playoffs":
+                    entries = data.get("regular", []) if isinstance(data, dict) else []
+                for entry in entries:
                     if entry.get("gameId") == game_id:
                         return pid, {
                             "goals": entry.get("goals", 0) or 0,
@@ -171,16 +455,21 @@ def build_roster_view(
     season_stats_map: dict,
     season: int,
     match_stats_map: dict[int, dict] | None = None,
+    stats_tournament: str = TOURNAMENT_REGULAR,
 ) -> dict:
     """Build a structured roster view for a single game.
 
     ``match_stats_map`` is an optional mapping of
     ``{player_id: {goals, assists, points, penaltyMinutes, plusMinus}}``
     containing the per-game stats for this match.  When provided the
-    season totals shown will be *adjusted* (season minus match).
+    season totals shown will be *adjusted* (season minus match) when
+    ``stats_tournament`` matches the game's phase (e.g. runkosarja stats
+    on a playoff game are not reduced by that playoff outing).
     """
     if match_stats_map is None:
         match_stats_map = {}
+
+    do_subtract = subtract_match_from_season_column(game_detail, stats_tournament)
 
     result: dict[str, Any] = {"game": {}}
 
@@ -254,6 +543,12 @@ def build_roster_view(
             m_pim = ms.get("penaltyMinutes", 0)
             m_pm = ms.get("plusMinus", 0)
 
+            sub_g = m_goals if do_subtract else 0
+            sub_a = m_assists if do_subtract else 0
+            sub_pt = m_points if do_subtract else 0
+            sub_pim = m_pim if do_subtract else 0
+            sub_pm = m_pm if do_subtract else 0
+
             # Raw season totals
             s_goals = stats.get("goals", 0)
             s_assists = stats.get("assists", 0)
@@ -289,11 +584,11 @@ def build_roster_view(
                 "hasMatchStats": bool(m_goals or m_assists or m_pim or m_pm),
                 # Adjusted season stats (season total minus this game)
                 "games": stats.get("games", 0),
-                "goals": s_goals - m_goals,
-                "assists": s_assists - m_assists,
-                "points": s_points - m_points,
-                "plusMinus": s_pm - m_pm,
-                "penaltyMinutes": s_pim - m_pim,
+                "goals": s_goals - sub_g,
+                "assists": s_assists - sub_a,
+                "points": s_points - sub_pt,
+                "plusMinus": s_pm - sub_pm,
+                "penaltyMinutes": s_pim - sub_pim,
                 "powerplayGoals": stats.get("powerplayGoals", 0),
                 "shots": stats.get("shots", 0),
                 "shotPercentage": stats.get("shotPercentage", 0),

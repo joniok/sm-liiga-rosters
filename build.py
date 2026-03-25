@@ -71,7 +71,7 @@ async def _build_played_round(
     games: list[dict],
     season: int,
     stats_map: dict[int, dict],
-    tournament: str,
+    stats_tournament: str,
 ) -> list[dict]:
     """Fetch details + match stats for played games and build roster views."""
     if not games:
@@ -98,7 +98,9 @@ async def _build_played_round(
     for detail, match_res in zip(valid_details, match_results):
         ms_map = match_res if isinstance(match_res, dict) else {}
         try:
-            view = liiga_client.build_roster_view(detail, stats_map, season, ms_map)
+            view = liiga_client.build_roster_view(
+                detail, stats_map, season, ms_map, stats_tournament=stats_tournament,
+            )
             roster_views.append(view)
         except Exception:
             continue
@@ -109,6 +111,7 @@ async def _build_upcoming_round(
     games: list[dict],
     season: int,
     stats_map: dict[int, dict],
+    stats_tournament: str,
 ) -> list[dict]:
     """Fetch details for upcoming games and build roster views."""
     if not games:
@@ -122,7 +125,9 @@ async def _build_upcoming_round(
         if isinstance(detail, Exception):
             continue
         try:
-            view = liiga_client.build_roster_view(detail, stats_map, season)
+            view = liiga_client.build_roster_view(
+                detail, stats_map, season, stats_tournament=stats_tournament,
+            )
             roster_views.append(view)
         except Exception:
             continue
@@ -137,12 +142,18 @@ async def build() -> None:
     """Fetch data from Liiga API and generate static HTML."""
     today = _today()
     now_fi = _now_fi()
-    tournament = "runkosarja"
+    playoffs_branch = await liiga_client.use_playoffs_for_games(today)
+    games_tournament = (
+        liiga_client.TOURNAMENT_PLAYOFFS if playoffs_branch else liiga_client.TOURNAMENT_REGULAR
+    )
+    stats_tournament = (
+        liiga_client.TOURNAMENT_PLAYOFFS if playoffs_branch else liiga_client.TOURNAMENT_REGULAR
+    )
 
     print(f"Building for {_fi_date(today)} …")
 
     # ── Fetch today's games ──
-    today_data = await liiga_client.get_games_for_date(today, tournament)
+    today_data = await liiga_client.get_games_for_date(today, games_tournament)
     today_games = today_data.get("games", [])
     api_prev_date = today_data.get("previousGameDate")
     api_next_date = today_data.get("nextGameDate")
@@ -166,7 +177,7 @@ async def build() -> None:
         prev_round_date = today
     elif api_prev_date:
         prev_date_obj = datetime.strptime(api_prev_date, "%Y-%m-%d").date()
-        prev_data = await liiga_client.get_games_for_date(prev_date_obj, tournament)
+        prev_data = await liiga_client.get_games_for_date(prev_date_obj, games_tournament)
         prev_round_games = prev_data.get("games", [])
         prev_round_date = prev_date_obj
 
@@ -179,7 +190,7 @@ async def build() -> None:
         next_round_date = today
     elif api_next_date:
         next_date_obj = datetime.strptime(api_next_date, "%Y-%m-%d").date()
-        next_data = await liiga_client.get_games_for_date(next_date_obj, tournament)
+        next_data = await liiga_client.get_games_for_date(next_date_obj, games_tournament)
         next_round_games = next_data.get("games", [])
         next_round_date = next_date_obj
 
@@ -190,7 +201,7 @@ async def build() -> None:
 
     if all_games:
         season = all_games[0].get("season", 2026)
-        season_stats = await liiga_client.get_season_stats(season, tournament)
+        season_stats = await liiga_client.get_season_stats(season, stats_tournament)
 
         stats_map: dict[int, dict] = {}
         if isinstance(season_stats, list):
@@ -200,9 +211,13 @@ async def build() -> None:
                     stats_map[pid] = s
 
         prev_round_views, next_round_views = await asyncio.gather(
-            _build_played_round(prev_round_games, season, stats_map, tournament),
-            _build_upcoming_round(next_round_games, season, stats_map),
+            _build_played_round(prev_round_games, season, stats_map, stats_tournament),
+            _build_upcoming_round(next_round_games, season, stats_map, stats_tournament),
         )
+
+    playoff_series_phases: list = []
+    if playoffs_branch:
+        playoff_series_phases = await liiga_client.get_playoff_series_board(today)
 
     # ── Render template ──
     env = Environment(loader=FileSystemLoader(str(APP_DIR / "templates")))
@@ -219,6 +234,9 @@ async def build() -> None:
         next_round_date_fi=_fi_date(next_round_date) if next_round_date else None,
         next_round_is_today=next_round_date == today if next_round_date else False,
         build_time=build_time,
+        show_stats_toggle=False,
+        stats_mode=stats_tournament,
+        playoff_series_phases=playoff_series_phases,
     )
 
     # ── Write output ──

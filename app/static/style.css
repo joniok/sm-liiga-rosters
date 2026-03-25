@@ -45,11 +45,176 @@ header h1 {
   margin-bottom: 0.25rem;
 }
 
+.stats-mode-toggle {
+  display: inline-flex;
+  margin-top: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.stats-mode-toggle a {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-right: 1px solid var(--border);
+  transition: color 0.15s, background 0.15s;
+}
+
+.stats-mode-toggle a:last-child {
+  border-right: none;
+}
+
+.stats-mode-toggle a.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.stats-mode-toggle a:not(.active):hover {
+  color: var(--text);
+  background: rgba(88, 166, 255, 0.12);
+}
+
 /* Main */
 main {
   max-width: 1200px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+/* Playoff series board (Liiga.fi–style summary) */
+.playoff-series-board {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ps-board-heading {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.ps-phase + .ps-phase {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.ps-phase-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.ps-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.65rem;
+}
+
+.ps-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem 0.5rem;
+  transition: border-color 0.15s;
+}
+
+.ps-card--decided {
+  border-color: rgba(88, 166, 255, 0.35);
+}
+
+.ps-card-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ps-side {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.ps-side--left {
+  justify-content: flex-start;
+}
+
+.ps-side--right {
+  justify-content: flex-end;
+  flex-direction: row-reverse;
+}
+
+.ps-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.ps-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-score-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 0.25rem;
+}
+
+.ps-score {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.ps-progress {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-meta {
+  margin-top: 0.45rem;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-align: center;
+  font-weight: 500;
+}
+
+@media (max-width: 480px) {
+  .ps-phase-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ps-name {
+    font-size: 0.78rem;
+    max-width: 7.5rem;
+  }
 }
 
 /* Tabs */

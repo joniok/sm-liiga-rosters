@@ -10,16 +10,58 @@
 
 <header>
   <h1>SM-liiga Kokoonpanot</h1>
+  {% if show_stats_toggle %}
+  <nav class="stats-mode-toggle" aria-label="Näytettävät kauden tilastot">
+    <a href="/?stats=playoffs" class="{% if stats_mode == 'playoffs' %}active{% endif %}">Playoffs</a>
+    <a href="/?stats=runkosarja" class="{% if stats_mode == 'runkosarja' %}active{% endif %}">Runkosarja</a>
+  </nav>
+  {% endif %}
 </header>
 
 <main>
 
+{% if playoff_series_phases %}
+<section class="playoff-series-board" aria-label="Playoff-sarjat">
+  <h2 class="ps-board-heading">Playoff-sarjat</h2>
+  {% for phase in playoff_series_phases %}
+  <div class="ps-phase">
+    <h3 class="ps-phase-title">{{ phase.phase_label }}</h3>
+    <div class="ps-phase-grid">
+      {% for s in phase.series %}
+      <article class="ps-card{% if s.decided %} ps-card--decided{% endif %}">
+        <div class="ps-card-main">
+          <div class="ps-side ps-side--left">
+            {% if s.team1.logo %}
+            <img src="{{ s.team1.logo }}" alt="" class="ps-logo" width="36" height="36">
+            {% endif %}
+            <span class="ps-name">{{ s.team1.name }}</span>
+          </div>
+          <div class="ps-score-block">
+            <span class="ps-score">{{ s.team1.wins }}–{{ s.team2.wins }}</span>
+            <span class="ps-progress">{{ s.progress }}</span>
+          </div>
+          <div class="ps-side ps-side--right">
+            <span class="ps-name">{{ s.team2.name }}</span>
+            {% if s.team2.logo %}
+            <img src="{{ s.team2.logo }}" alt="" class="ps-logo" width="36" height="36">
+            {% endif %}
+          </div>
+        </div>
+        <p class="ps-meta">{{ s.best_of_label }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
 {# ── Completely empty: no rounds at all ── #}
-{% if not prev_round_views and not next_round_views %}
+{% if not prev_round_views and not next_round_views and not playoff_series_phases %}
   <div class="no-games">
     <p>Ei ottelutietoja saatavilla.</p>
   </div>
-{% else %}
+{% elif prev_round_views or next_round_views %}
 
   {# ── Tab bar ── #}
   <nav class="tab-bar">
