@@ -2,6 +2,8 @@
 
 Minimal web app showing daily rosters for Finnish SM-liiga ice hockey matches, including season statistics, golden helmet (kultakypärä) markers, and Red Bull U20 indicators.
 
+During **playoffs**, kultakypärä (overall best scorer / team helmet carrier) and Red Bull U20 markers are taken from the same sources as on Liiga.fi: both the game-level `awards` list and each roster player’s `awards` array in the Liiga API. The “Tänään” (next round) view shows those badges and the legend the same way as “Edellinen kierros”.
+
 ## GitHub Pages deployment (static site)
 
 The site is automatically built and deployed to GitHub Pages **daily at 13:00 Finnish time** via GitHub Actions. You can also trigger a build manually from the Actions tab.
@@ -25,12 +27,14 @@ The site is automatically built and deployed to GitHub Pages **daily at 13:00 Fi
 
 ### Manual build
 
+Use a virtual environment so dependencies are not installed system-wide (recommended on macOS/Homebrew Python).
+
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python build.py
-# Static site is written to output/
+# Static site is written to output/ (ignored by git)
 ```
 
 ## Run locally (development server)
@@ -42,7 +46,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8080
 ```
 
-Open http://localhost:8080
+Open http://localhost:8080 (or the port shown in the terminal).
 
 ## Deploy to Google Cloud Run (alternative)
 

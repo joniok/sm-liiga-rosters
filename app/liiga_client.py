@@ -451,6 +451,26 @@ ROLE_CODE_SHORT = {
 }
 
 
+def _add_helmet_and_u20_from_awards(
+    award_list: list | None,
+    golden_helmet_ids: set[int],
+    redbull_ids: set[int],
+    default_player_id: int | None = None,
+) -> None:
+    """Merge Kultakypärä / Red Bull U20 player ids from a list of award dicts."""
+    for aw in award_list or []:
+        name = (aw.get("awardName") or "").lower()
+        pid = aw.get("playerId")
+        if pid is None:
+            pid = default_player_id
+        if pid is None:
+            continue
+        if "kultainen kypärä" in name:
+            golden_helmet_ids.add(pid)
+        if "red bull" in name:
+            redbull_ids.add(pid)
+
+
 def build_roster_view(
     game_detail: dict,
     season_stats_map: dict,
@@ -484,17 +504,20 @@ def build_roster_view(
         if pid:
             award_map.setdefault(pid, []).append(aw.get("awardName", ""))
 
-    # Find golden helmet players from awards
     golden_helmet_ids: set[int] = set()
-    for aw in awards:
-        if "kultainen kypärä" in (aw.get("awardName", "")).lower():
-            golden_helmet_ids.add(aw.get("playerId"))
-
-    # Find Red Bull U20 player from awards
     redbull_ids: set[int] = set()
-    for aw in awards:
-        if "red bull" in (aw.get("awardName", "")).lower():
-            redbull_ids.add(aw.get("playerId"))
+    _add_helmet_and_u20_from_awards(awards, golden_helmet_ids, redbull_ids)
+
+    # Liiga also attaches kultakypärä / Red Bull markers on each roster player's awards.
+    for plist_key in ("homeTeamPlayers", "awayTeamPlayers"):
+        for p in game_detail.get(plist_key) or []:
+            pid = p.get("id")
+            _add_helmet_and_u20_from_awards(
+                p.get("awards"),
+                golden_helmet_ids,
+                redbull_ids,
+                default_player_id=pid,
+            )
 
     result["game"] = {
         "id": game.get("id"),

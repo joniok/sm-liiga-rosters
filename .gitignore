@@ -1,5 +1,19 @@
+# Virtual environment
 .venv/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment
 .env
+.env.*
+
+# Build output (static site generator)
 output/
+
+# OS / editor
+.DS_Store
