@@ -648,15 +648,26 @@ main {
 }
 
 /* Stats legend */
+.stats-legend-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+
 .stats-legend {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.4rem 0;
-  padding: 0.6rem 0.75rem;
-  font-size: 0.65rem;
-  color: var(--text-dim);
-  border-top: 1px solid var(--border);
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  border-top: none;
 }
 
 .stats-legend > span {
@@ -669,8 +680,20 @@ main {
   border-right: none;
 }
 
+.stats-legend-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.15rem 0 0.05rem;
+  width: 100%;
+  max-width: 14rem;
+  opacity: 0.75;
+}
+
+.stats-legend-awards {
+  padding-top: 0.1rem;
+}
+
 .goalie-legend {
-  border-top: none;
   padding-top: 0;
 }
 
