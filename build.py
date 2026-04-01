@@ -10,7 +10,7 @@ to a self-contained static site in the ``output/`` directory.
 
 import asyncio
 import shutil
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -36,15 +36,13 @@ def _fi_date(d: date) -> str:
 
 
 def _today() -> date:
-    """Return today's date in Finnish timezone (UTC+2/+3)."""
-    finnish_tz = timezone(timedelta(hours=2))
-    return datetime.now(finnish_tz).date()
+    """Return today's date in Europe/Helsinki (EET / EEST)."""
+    return datetime.now(liiga_client.FI_TZ).date()
 
 
 def _now_fi() -> datetime:
-    """Return the current datetime in Finnish timezone."""
-    finnish_tz = timezone(timedelta(hours=2))
-    return datetime.now(finnish_tz)
+    """Return the current datetime in Europe/Helsinki."""
+    return datetime.now(liiga_client.FI_TZ)
 
 
 def _is_future_game(g: dict, game_date: date, today: date, now_fi: datetime) -> bool:
@@ -53,17 +51,9 @@ def _is_future_game(g: dict, game_date: date, today: date, now_fi: datetime) -> 
         return True
     if game_date < today:
         return False
-    start_str = g.get("start", "")
-    if start_str:
-        try:
-            start_hour = int(start_str[11:13]) + 2  # UTC → Finnish
-            start_minute = int(start_str[14:16])
-            if start_hour > now_fi.hour or (
-                start_hour == now_fi.hour and start_minute > now_fi.minute
-            ):
-                return True
-        except (ValueError, IndexError):
-            pass
+    start_fi = liiga_client.game_start_helsinki(g.get("start") or "")
+    if start_fi is not None:
+        return start_fi > now_fi
     return False
 
 

@@ -102,8 +102,9 @@
           <span class="team-name">{{ rv.homeTeam.teamName }}</span>
         </div>
         <div class="score-info">
-          {% set start_hour = rv.game.start[11:13]|int + 2 %}
-          <span class="game-time">{{ '%02d' % start_hour }}:{{ rv.game.start[14:16] }}</span>
+          {% if rv.game.startTimeFi %}
+          <span class="game-time">{{ rv.game.startTimeFi }}</span>
+          {% endif %}
         </div>
         <div class="team away-team">
           {% if rv.awayTeam.logos and rv.awayTeam.logos.darkBg %}
@@ -235,8 +236,9 @@
           </span>
           {% endif %}
           {% else %}
-          {% set start_hour = rv.game.start[11:13]|int + 2 %}
-          <span class="game-time">{{ '%02d' % start_hour }}:{{ rv.game.start[14:16] }}</span>
+          {% if rv.game.startTimeFi %}
+          <span class="game-time">{{ rv.game.startTimeFi }}</span>
+          {% endif %}
           {% endif %}
         </div>
         <div class="team away-team">
@@ -379,8 +381,9 @@
           {% endif %}
         </div>
         <div class="sb-info">
-          {% set start_hour = rv.game.start[11:13]|int + 2 %}
-          <span class="sb-time">{{ '%02d' % start_hour }}:{{ rv.game.start[14:16] }}</span>
+          {% if rv.game.startTimeFi %}
+          <span class="sb-time">{{ rv.game.startTimeFi }}</span>
+          {% endif %}
         </div>
       </a>
       {% endfor %}
@@ -411,8 +414,9 @@
             <span class="sb-finish">VL</span>
             {% endif %}
           {% elif not rv.game.ended %}
-            {% set start_hour = rv.game.start[11:13]|int + 2 %}
-            <span class="sb-time">{{ '%02d' % start_hour }}:{{ rv.game.start[14:16] }}</span>
+            {% if rv.game.startTimeFi %}
+            <span class="sb-time">{{ rv.game.startTimeFi }}</span>
+            {% endif %}
           {% endif %}
         </div>
       </a>
@@ -434,7 +438,8 @@
 
 <footer>
   <p>Data: <a href="https://liiga.fi" target="_blank">Liiga.fi</a></p>
-  {% if build_time %}<p class="build-time">Päivitetty {{ build_time }}</p>{% endif %}
+  {% if build_time %}<p class="build-time">Sivusto rakennettu {{ build_time }} (Suomen aika)</p>{% endif %}
+  <p class="footer-schedule">Automaattiset päivitykset noin klo <strong>07:00</strong>, <strong>13:15</strong> ja <strong>23:00</strong> Suomen aikaa (talviaika, EET). Kesäaikana (EEST) vastaavat UTC-ajot voivat näkyä paikallisena aikana tunnin erolla. Manuaalinen ajoitus GitHub Actionsissa on myös mahdollinen.</p>
 </footer>
 
 <script>

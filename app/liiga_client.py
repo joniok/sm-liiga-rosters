@@ -4,12 +4,35 @@ import asyncio
 from collections import Counter
 import httpx
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from itertools import groupby
+from zoneinfo import ZoneInfo
 from typing import Any
 
 LIIGA_API_BASE = "https://liiga.fi/api/v2"
 TIMEOUT = 30.0
+
+FI_TZ = ZoneInfo("Europe/Helsinki")
+
+
+def game_start_helsinki(start_str: str | None) -> datetime | None:
+    """Parse Liiga API game ``start`` (ISO-8601); return aware local time in Helsinki."""
+    if not start_str:
+        return None
+    normalized = start_str.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(FI_TZ)
+
+
+def format_game_start_time_fi(start_str: str | None) -> str | None:
+    """Wall-clock start time in Finland (``HH:MM``), respecting DST."""
+    dt = game_start_helsinki(start_str)
+    return dt.strftime("%H:%M") if dt else None
 
 TOURNAMENT_REGULAR = "runkosarja"
 TOURNAMENT_PLAYOFFS = "playoffs"
@@ -523,6 +546,7 @@ def build_roster_view(
         "id": game.get("id"),
         "season": game.get("season"),
         "start": game.get("start"),
+        "startTimeFi": format_game_start_time_fi(game.get("start")),
         "started": game.get("started"),
         "ended": game.get("ended"),
         "spectators": game.get("spectators"),

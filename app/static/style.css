@@ -702,6 +702,19 @@ footer a {
   text-decoration: none;
 }
 
+footer .build-time,
+footer .footer-schedule {
+  margin-top: 0.5rem;
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.45;
+}
+
+footer .footer-schedule {
+  margin-top: 0.65rem;
+}
+
 /* ═══════════════════════════════════════════ */
 /* Match Sidebar                              */
 /* ═══════════════════════════════════════════ */
