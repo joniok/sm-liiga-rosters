@@ -1,6 +1,11 @@
 name: Build & Deploy to GitHub Pages
 
 on:
+  # Rebuild on every push to main so fixes (e.g. templates) reach Pages without
+  # waiting for the next scheduled run.
+  push:
+    branches: [main]
+
   # GitHub Actions cron is UTC. Approx. Finnish time (EET, UTC+2):
   #   05:00 UTC → 07:00   | 11:15 UTC → 13:15   | 21:00 UTC → 23:00
   # EEST (summer): add +1 h to local wall clock vs these UTC times.
