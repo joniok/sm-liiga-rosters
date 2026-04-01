@@ -45,14 +45,6 @@ def _now_fi() -> datetime:
     return datetime.now(liiga_client.FI_TZ)
 
 
-def _fi_tz_label(now_fi: datetime) -> str:
-    """Short zone name + Finnish winter/summer label (EET/EEST)."""
-    abbr = (now_fi.tzname() or "").strip() or "Europe/Helsinki"
-    if now_fi.dst():
-        return f"{abbr} (kesäaika)"
-    return f"{abbr} (talviaika)"
-
-
 def _is_future_game(g: dict, game_date: date, today: date, now_fi: datetime) -> bool:
     """Determine if a game hasn't started yet."""
     if game_date > today:
@@ -222,7 +214,6 @@ async def build() -> None:
     template = env.get_template("index.html")
 
     build_time = now_fi.strftime("%d.%m.%Y %H:%M")
-    build_tz_label = _fi_tz_label(now_fi)
 
     html = template.render(
         today_fi=_fi_date(today),
@@ -233,7 +224,6 @@ async def build() -> None:
         next_round_date_fi=_fi_date(next_round_date) if next_round_date else None,
         next_round_is_today=next_round_date == today if next_round_date else False,
         build_time=build_time,
-        build_tz_label=build_tz_label,
         show_stats_toggle=False,
         stats_mode=stats_tournament,
         playoff_series_phases=playoff_series_phases,
@@ -252,7 +242,7 @@ async def build() -> None:
     # .nojekyll prevents GitHub Pages from running Jekyll
     (OUTPUT_DIR / ".nojekyll").touch()
 
-    print(f"Static site written to {OUTPUT_DIR}/ (built at {build_time} {build_tz_label})")
+    print(f"Static site written to {OUTPUT_DIR}/ (built at {build_time})")
 
 
 if __name__ == "__main__":
