@@ -358,7 +358,7 @@ def build_playoff_series_rows(games: list[dict]) -> list[dict[str, Any]]:
             "decided": decided,
         })
 
-    rows.sort(key=lambda r: (r["phase"], r["pair"]))
+    rows.sort(key=lambda r: (-r["phase"], r["pair"]))
     return rows
 
 
