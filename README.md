@@ -6,7 +6,7 @@ During **playoffs**, kultakypärä (overall best scorer / team helmet carrier) a
 
 ## GitHub Pages deployment (static site)
 
-The site is automatically built and deployed to GitHub Pages **daily at 13:00 Finnish time** via GitHub Actions. You can also trigger a build manually from the Actions tab.
+The site is automatically built and deployed to GitHub Pages **three times per day** (about 07:00, 13:15, and 23:00 Finnish time in winter / EET; see workflow comments for UTC) via GitHub Actions. You can also trigger a build manually from the Actions tab.
 
 ### How it works
 
