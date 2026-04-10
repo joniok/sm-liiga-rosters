@@ -12,6 +12,11 @@ from typing import Any
 LIIGA_API_BASE = "https://liiga.fi/api/v2"
 TIMEOUT = 30.0
 
+# Transient upstream failures (Liiga CDN / gateway); retry before failing the build
+_GET_MAX_ATTEMPTS = 4
+_GET_RETRY_BASE_DELAY_SEC = 1.0
+_TRANSIENT_HTTP_STATUS = frozenset({502, 503, 504})
+
 FI_TZ = ZoneInfo("Europe/Helsinki")
 
 
@@ -56,8 +61,22 @@ PO_GAMES_CACHE_TTL = 240  # seconds
 async def _get(path: str, params: dict | None = None) -> Any:
     """Make a GET request to the Liiga API."""
     url = f"{LIIGA_API_BASE}{path}"
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        resp = await client.get(url, params=params)
+    last_attempt = _GET_MAX_ATTEMPTS - 1
+    for attempt in range(_GET_MAX_ATTEMPTS):
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                resp = await client.get(url, params=params)
+        except httpx.RequestError:
+            if attempt < last_attempt:
+                await asyncio.sleep(_GET_RETRY_BASE_DELAY_SEC * (2**attempt))
+                continue
+            raise
+
+        if resp.status_code in _TRANSIENT_HTTP_STATUS:
+            if attempt < last_attempt:
+                await asyncio.sleep(_GET_RETRY_BASE_DELAY_SEC * (2**attempt))
+                continue
+
         resp.raise_for_status()
         return resp.json()
 
