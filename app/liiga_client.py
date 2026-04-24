@@ -3,6 +3,7 @@
 import asyncio
 from collections import Counter
 import httpx
+import random
 import time
 from datetime import date, datetime, timezone
 from itertools import groupby
@@ -13,9 +14,10 @@ LIIGA_API_BASE = "https://liiga.fi/api/v2"
 TIMEOUT = 30.0
 
 # Transient upstream failures (Liiga CDN / gateway); retry before failing the build
-_GET_MAX_ATTEMPTS = 4
-_GET_RETRY_BASE_DELAY_SEC = 1.0
-_TRANSIENT_HTTP_STATUS = frozenset({502, 503, 504})
+_GET_MAX_ATTEMPTS = 8
+_GET_RETRY_BASE_DELAY_SEC = 1.25
+_GET_RETRY_MAX_SLEEP_SEC = 45.0
+_TRANSIENT_HTTP_STATUS = frozenset({408, 429, 502, 503, 504})
 
 FI_TZ = ZoneInfo("Europe/Helsinki")
 
@@ -58,6 +60,21 @@ _po_games_cache: dict[str, tuple[float, list[dict]]] = {}
 PO_GAMES_CACHE_TTL = 240  # seconds
 
 
+async def _sleep_before_liiga_retry(attempt: int, resp: httpx.Response | None) -> None:
+    """Backoff with jitter; honor Retry-After on 429 when present."""
+    if resp is not None and resp.status_code == 429:
+        ra = resp.headers.get("retry-after")
+        if ra:
+            try:
+                await asyncio.sleep(min(float(ra), _GET_RETRY_MAX_SLEEP_SEC))
+                return
+            except ValueError:
+                pass
+    base = _GET_RETRY_BASE_DELAY_SEC * (2**attempt)
+    jitter = random.uniform(0.0, 0.8)
+    await asyncio.sleep(min(base + jitter, _GET_RETRY_MAX_SLEEP_SEC))
+
+
 async def _get(path: str, params: dict | None = None) -> Any:
     """Make a GET request to the Liiga API."""
     url = f"{LIIGA_API_BASE}{path}"
@@ -68,13 +85,13 @@ async def _get(path: str, params: dict | None = None) -> Any:
                 resp = await client.get(url, params=params)
         except httpx.RequestError:
             if attempt < last_attempt:
-                await asyncio.sleep(_GET_RETRY_BASE_DELAY_SEC * (2**attempt))
+                await _sleep_before_liiga_retry(attempt, None)
                 continue
             raise
 
         if resp.status_code in _TRANSIENT_HTTP_STATUS:
             if attempt < last_attempt:
-                await asyncio.sleep(_GET_RETRY_BASE_DELAY_SEC * (2**attempt))
+                await _sleep_before_liiga_retry(attempt, resp)
                 continue
 
         resp.raise_for_status()
