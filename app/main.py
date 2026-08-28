@@ -182,11 +182,12 @@ async def index(request: Request, stats: str | None = None):
         prev_round_games = played_today
         prev_round_date = today
     elif api_prev_date:
-        # No played games today → load previous game date
-        prev_date_obj = datetime.strptime(api_prev_date, "%Y-%m-%d").date()
-        prev_data = await liiga_client.get_games_for_date(prev_date_obj, games_tournament)
-        prev_round_games = prev_data.get("games", [])
-        prev_round_date = prev_date_obj
+        # No played games today → load previous game date (ignore offseason wrap)
+        prev_date_obj = liiga_client.usable_previous_game_date(api_prev_date, today)
+        if prev_date_obj:
+            prev_data = await liiga_client.get_games_for_date(prev_date_obj, games_tournament)
+            prev_round_games = prev_data.get("games", [])
+            prev_round_date = prev_date_obj
 
     # ── Determine next round ──
     next_round_games: list[dict] = []
@@ -197,11 +198,12 @@ async def index(request: Request, stats: str | None = None):
         next_round_games = upcoming_today
         next_round_date = today
     elif api_next_date:
-        # No upcoming games today → load next game date
-        next_date_obj = datetime.strptime(api_next_date, "%Y-%m-%d").date()
-        next_data = await liiga_client.get_games_for_date(next_date_obj, games_tournament)
-        next_round_games = next_data.get("games", [])
-        next_round_date = next_date_obj
+        # No upcoming games today → load next game date (ignore wrapped past dates)
+        next_date_obj = liiga_client.usable_next_game_date(api_next_date, today)
+        if next_date_obj:
+            next_data = await liiga_client.get_games_for_date(next_date_obj, games_tournament)
+            next_round_games = next_data.get("games", [])
+            next_round_date = next_date_obj
 
     # ── Determine season and fetch season stats ──
     all_games = prev_round_games + next_round_games

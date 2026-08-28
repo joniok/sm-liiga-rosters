@@ -121,7 +121,7 @@
 
           {% for line in side.lines %}
           <div class="line-group">
-            <div class="line-label">{{ line.lineNum }}. kenttä</div>
+            <div class="line-label">{{ line.label or (line.lineNum ~ '. kenttä' if line.lineNum else 'Pelaajat') }}</div>
 
             {% for group in [line.forwards, line.defensemen] %}
             {% if group %}
@@ -261,7 +261,7 @@
 
           {% for line in side.lines %}
           <div class="line-group">
-            <div class="line-label">{{ line.lineNum }}. kenttä</div>
+            <div class="line-label">{{ line.label or (line.lineNum ~ '. kenttä' if line.lineNum else 'Pelaajat') }}</div>
 
             {% for group in [line.forwards, line.defensemen] %}
             {% if group %}
