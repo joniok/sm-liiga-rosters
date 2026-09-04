@@ -521,12 +521,18 @@ def is_u20(date_of_birth: str | None, season: int) -> bool:
 
 # Mapping of role codes from the roster API to display groups.
 # 2026–27 stats system uses coarser roles: STRIKER / DEFENSEMAN / GOALIE
-# until lines are published; extras use 13th forward / 7th defenseman.
-FORWARD_ROLES = {"LEFT_WING", "RIGHT_WING", "CENTER", "STRIKER", "THIRTEENTH_STRIKER"}
-DEFENSE_ROLES = {"LEFT_DEFENSEMAN", "RIGHT_DEFENSEMAN", "DEFENSEMAN", "SEVENTH_DEFENSEMAN"}
+# until lines are published; extras use 13th forward / 7th+ defenseman.
+FORWARD_ROLES = {
+    "LEFT_WING", "RIGHT_WING", "CENTER", "STRIKER",
+    "THIRTEENTH_STRIKER", "FOURTEENTH_STRIKER",
+}
+DEFENSE_ROLES = {
+    "LEFT_DEFENSEMAN", "RIGHT_DEFENSEMAN", "DEFENSEMAN",
+    "SEVENTH_DEFENSEMAN", "EIGHTH_DEFENSEMAN",
+}
 GOALIE_ROLES = {"GOALIE"}
-FORWARD_CODES = {"VL", "OL", "KH", "H", "KP", "13. H"}
-DEFENSE_CODES = {"VP", "OP", "P", "7. P"}
+FORWARD_CODES = {"VL", "OL", "KH", "H", "KP", "13. H", "14. H"}
+DEFENSE_CODES = {"VP", "OP", "P", "7. P", "8. P"}
 GOALIE_CODES = {"MV"}
 _COARSE_ROLES = {"STRIKER", "DEFENSEMAN", "GOALIE"}
 
@@ -537,10 +543,12 @@ ROLE_SHORT = {
     "CENTER": "KH",
     "STRIKER": "H",
     "THIRTEENTH_STRIKER": "13.H",
+    "FOURTEENTH_STRIKER": "14.H",
     "LEFT_DEFENSEMAN": "VP",
     "RIGHT_DEFENSEMAN": "OP",
     "DEFENSEMAN": "P",
     "SEVENTH_DEFENSEMAN": "7.P",
+    "EIGHTH_DEFENSEMAN": "8.P",
     "GOALIE": "MV",
 }
 
@@ -556,7 +564,9 @@ ROLE_CODE_SHORT = {
     "P": "P",
     "MV": "MV",
     "13. H": "13.H",
+    "14. H": "14.H",
     "7. P": "7.P",
+    "8. P": "8.P",
 }
 
 _BOOL_MERGE_KEYS = (
@@ -569,18 +579,20 @@ def _role_short(role: str | None, role_code: str | None) -> str:
         return ROLE_SHORT[role]
     if role_code and role_code in ROLE_CODE_SHORT:
         return ROLE_CODE_SHORT[role_code]
-    return role or role_code or ""
+    if role_code:
+        return str(role_code).replace(" ", "")
+    return role or ""
 
 
 def _position_group(role: str | None, role_code: str | None) -> str:
     """Return ``G``, ``F``, ``D``, or ``?``."""
     role = role or ""
     code = role_code or ""
-    if role in GOALIE_ROLES or code in GOALIE_CODES:
+    if role in GOALIE_ROLES or "GOALIE" in role or code in GOALIE_CODES:
         return "G"
-    if role in FORWARD_ROLES or code in FORWARD_CODES:
+    if role in FORWARD_ROLES or "STRIKER" in role or "WING" in role or role == "CENTER" or code in FORWARD_CODES:
         return "F"
-    if role in DEFENSE_ROLES or code in DEFENSE_CODES:
+    if role in DEFENSE_ROLES or "DEFENSE" in role or code in DEFENSE_CODES:
         return "D"
     return "?"
 
@@ -766,6 +778,7 @@ def build_roster_view(
         lines_map: dict[int, list[dict]] = {}
         goalies: list[dict] = []
         extras: list[dict] = []
+        extra_goalies: list[dict] = []
         unlined_forwards: list[dict] = []
         unlined_defense: list[dict] = []
 
@@ -849,7 +862,10 @@ def build_roster_view(
             }
 
             if pos == "G":
-                goalies.append(player_data)
+                if any_line and not (line and line > 0):
+                    extra_goalies.append(player_data)
+                else:
+                    goalies.append(player_data)
             elif any_line and line and line > 0:
                 lines_map.setdefault(line, []).append(player_data)
             elif not any_line and pos == "F":
@@ -870,6 +886,7 @@ def build_roster_view(
             role_order = {
                 "LEFT_WING": 0, "CENTER": 1, "RIGHT_WING": 2, "STRIKER": 1,
                 "THIRTEENTH_STRIKER": 9,
+                "FOURTEENTH_STRIKER": 9,
             }
             forwards.sort(key=lambda p: (role_order.get(p["role"], 9), p.get("jersey") or 999))
 
@@ -877,6 +894,7 @@ def build_roster_view(
             def_order = {
                 "LEFT_DEFENSEMAN": 0, "DEFENSEMAN": 1, "RIGHT_DEFENSEMAN": 2,
                 "SEVENTH_DEFENSEMAN": 9,
+                "EIGHTH_DEFENSEMAN": 9,
             }
             defensemen.sort(key=lambda p: (def_order.get(p["role"], 9), p.get("jersey") or 999))
 
@@ -922,6 +940,7 @@ def build_roster_view(
                 })
 
         team_data["goalies"] = goalies
+        team_data["extraGoalies"] = extra_goalies
         team_data["extras"] = extras
 
         table_f: list[dict] = []

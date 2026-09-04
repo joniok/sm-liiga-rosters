@@ -84,28 +84,30 @@ header h1 {
 }
 
 .stats-mode-toggle a.active,
-.layout-toggle button.active {
+html:not(.layout-table) .layout-btn[data-layout="lines"],
+html.layout-table .layout-btn[data-layout="table"] {
   background: var(--accent);
   color: var(--bg);
 }
 
 .stats-mode-toggle a:not(.active):hover,
-.layout-toggle button:not(.active):hover {
+html.layout-table .layout-btn[data-layout="lines"]:hover,
+html:not(.layout-table) .layout-btn[data-layout="table"]:hover {
   color: var(--text);
   background: rgba(88, 166, 255, 0.12);
 }
 
-/* Default: line (kenttä) layout. Table is the alternative. */
+/* Exclusive in-game layouts. Poissa kokoonpanosta stays outside this switch. */
 .roster-table {
-  display: none;
+  display: none !important;
 }
 
 html.layout-table .roster-lines {
-  display: none;
+  display: none !important;
 }
 
 html.layout-table .roster-table {
-  display: block;
+  display: block !important;
 }
 
 /* Main */
@@ -717,8 +719,8 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.6rem 0.75rem;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem 0.8rem;
   font-size: 0.65rem;
   color: var(--text-dim);
   border-top: 1px solid var(--border);
@@ -728,7 +730,9 @@ main {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.4rem 0;
+  align-items: center;
+  column-gap: 0;
+  row-gap: 0.45rem;
   padding: 0;
   margin: 0;
   width: 100%;
@@ -736,8 +740,12 @@ main {
 }
 
 .stats-legend > span {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
   white-space: nowrap;
-  padding: 0 0.5rem;
+  line-height: 1.45;
+  padding: 0.05rem 0.55rem;
   border-right: 1px solid var(--border);
 }
 
@@ -748,14 +756,17 @@ main {
 .stats-legend-divider {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 0.15rem 0 0.05rem;
+  margin: 0.05rem 0;
   width: 100%;
   max-width: 14rem;
+  flex-shrink: 0;
   opacity: 0.75;
 }
 
 .stats-legend-awards {
-  padding-top: 0.1rem;
+  padding-top: 0.05rem;
+  column-gap: 0.15rem;
+  row-gap: 0.4rem;
 }
 
 .goalie-legend {
@@ -766,7 +777,7 @@ main {
   font-weight: 600;
   color: var(--accent);
   border-right: none;
-  padding-right: 0;
+  padding-right: 0.15rem;
 }
 
 .legend-helmet.golden {
@@ -1062,6 +1073,25 @@ footer .footer-schedule {
 }
 
 @media (max-width: 480px) {
+  .stats-legend-block {
+    gap: 0.65rem;
+    padding: 0.75rem 0.5rem;
+  }
+
+  .stats-legend {
+    row-gap: 0.5rem;
+  }
+
+  .stats-legend-awards {
+    flex-direction: column;
+    row-gap: 0.35rem;
+  }
+
+  .stats-legend-awards > span {
+    border-right: none;
+    padding: 0.05rem 0.25rem;
+  }
+
   .player-cell {
     flex-wrap: wrap;
   }
