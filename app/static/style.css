@@ -110,6 +110,15 @@ html.layout-table .roster-table {
   display: block !important;
 }
 
+/* Future games with unpublished lines: table only, ignore the Kentät toggle. */
+.game-card.no-lines .roster-lines {
+  display: none !important;
+}
+
+.game-card.no-lines .roster-table {
+  display: block !important;
+}
+
 /* Main */
 main {
   max-width: 1200px;

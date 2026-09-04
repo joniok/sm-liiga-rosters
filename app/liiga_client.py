@@ -534,7 +534,6 @@ GOALIE_ROLES = {"GOALIE"}
 FORWARD_CODES = {"VL", "OL", "KH", "H", "KP", "13. H", "14. H"}
 DEFENSE_CODES = {"VP", "OP", "P", "7. P", "8. P"}
 GOALIE_CODES = {"MV"}
-_COARSE_ROLES = {"STRIKER", "DEFENSEMAN", "GOALIE"}
 
 # Short role labels for display (Finnish abbreviations)
 ROLE_SHORT = {
@@ -622,57 +621,6 @@ def _dedupe_roster_players(players: list[dict]) -> list[dict]:
     return [by_id[pid] for pid in order] + passthrough
 
 
-def extract_line_memory(game_detail: dict) -> dict[str, dict[int, dict]]:
-    """Per-team line/role snapshot from a game that already has line numbers."""
-    memory: dict[str, dict[int, dict]] = {}
-    game = game_detail.get("game") or {}
-    for side, players_key in [("homeTeam", "homeTeamPlayers"), ("awayTeam", "awayTeamPlayers")]:
-        team_id = (game.get(side) or {}).get("teamId")
-        if not team_id:
-            continue
-        players = _dedupe_roster_players(game_detail.get(players_key) or [])
-        if not any((p.get("line") or 0) > 0 for p in players):
-            continue
-        slot = memory.setdefault(str(team_id), {})
-        for p in players:
-            pid = p.get("id")
-            line = p.get("line") or 0
-            if pid is None or line <= 0:
-                continue
-            slot[pid] = {
-                "line": line,
-                "role": p.get("role") or "",
-                "roleCode": p.get("roleCode") or "",
-            }
-    return memory
-
-
-def merge_line_memory(
-    into: dict[str, dict[int, dict]],
-    extra: dict[str, dict[int, dict]],
-) -> None:
-    for team_id, players in extra.items():
-        into.setdefault(str(team_id), {}).update(players)
-
-
-def _apply_line_memory(players: list[dict], memory: dict[int, dict] | None) -> None:
-    """Fill missing line/role from the team's last known roster (in-place)."""
-    if not memory:
-        return
-    for p in players:
-        pid = p.get("id")
-        remembered = memory.get(pid) if pid is not None else None
-        if not remembered:
-            continue
-        if not (p.get("line") or 0):
-            p["line"] = remembered.get("line")
-        role = p.get("role") or ""
-        if (not role or role in _COARSE_ROLES) and remembered.get("role"):
-            p["role"] = remembered["role"]
-            if remembered.get("roleCode"):
-                p["roleCode"] = remembered["roleCode"]
-
-
 def _add_helmet_and_u20_from_awards(
     award_list: list | None,
     golden_helmet_ids: set[int],
@@ -699,7 +647,6 @@ def build_roster_view(
     season: int,
     match_stats_map: dict[int, dict] | None = None,
     stats_tournament: str = TOURNAMENT_REGULAR,
-    line_memory: dict[str, dict[int, dict]] | None = None,
 ) -> dict:
     """Build a structured roster view for a single game.
 
@@ -712,8 +659,6 @@ def build_roster_view(
     """
     if match_stats_map is None:
         match_stats_map = {}
-    if line_memory is None:
-        line_memory = {}
 
     do_subtract = subtract_match_from_season_column(game_detail, stats_tournament)
 
@@ -761,7 +706,6 @@ def build_roster_view(
     for side, players_key in [("homeTeam", "homeTeamPlayers"), ("awayTeam", "awayTeamPlayers")]:
         team_info = game.get(side, {})
         players = _dedupe_roster_players(game_detail.get(players_key) or [])
-        _apply_line_memory(players, line_memory.get(str(team_info.get("teamId") or "")))
         any_line = any((p.get("line") or 0) > 0 for p in players)
 
         team_data: dict[str, Any] = {
@@ -974,6 +918,10 @@ def build_roster_view(
 
         result[side] = team_data
 
+    result["hasLines"] = any(
+        any(ln.get("lineNum") for ln in (result.get(side) or {}).get("lines") or [])
+        for side in ("homeTeam", "awayTeam")
+    )
     return result
 
 

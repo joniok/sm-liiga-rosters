@@ -189,7 +189,11 @@
     </nav>
     {% endif %}
     {% if prev_round_views or next_round_views %}
-    <nav class="layout-toggle" aria-label="Kokoonpanon asettelu">
+    {% set ns = namespace(next_has_lines=false) %}
+    {% for rv in next_round_views %}
+      {% if rv.hasLines %}{% set ns.next_has_lines = true %}{% endif %}
+    {% endfor %}
+    <nav class="layout-toggle" aria-label="Kokoonpanon asettelu"{% if not ns.next_has_lines %} hidden{% endif %}>
       <button type="button" class="layout-btn" data-layout="lines" aria-pressed="true">Kentät</button>
       <button type="button" class="layout-btn" data-layout="table" aria-pressed="false">Taulukko</button>
     </nav>
@@ -273,7 +277,7 @@
     {% endif %}
 
     {% for rv in next_round_views %}
-    <div class="game-card" id="game-next-{{ loop.index0 }}">
+    <div class="game-card{% if rv.hasLines %} has-lines{% else %} no-lines{% endif %}" id="game-next-{{ loop.index0 }}">
       <div class="game-header">
         <div class="team home-team">
           {% if rv.homeTeam.logos and rv.homeTeam.logos.darkBg %}
@@ -315,7 +319,7 @@
   <div class="tab-panel" id="tab-prev">
 
     {% for rv in prev_round_views %}
-    <div class="game-card" id="game-prev-{{ loop.index0 }}">
+    <div class="game-card{% if rv.hasLines %} has-lines{% else %} no-lines{% endif %}" id="game-prev-{{ loop.index0 }}">
       <div class="game-header">
         <div class="team home-team">
           {% if rv.homeTeam.logos and rv.homeTeam.logos.darkBg %}
@@ -512,6 +516,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       // Sync sidebar
       updateSidebarForTab(target);
+      updateLayoutToggleForTab();
     });
   });
 
@@ -596,6 +601,15 @@ document.addEventListener('DOMContentLoaded', function () {
       applyLayout(btn.getAttribute('data-layout'));
     });
   });
+
+  function updateLayoutToggleForTab() {
+    var toggle = document.querySelector('.layout-toggle');
+    if (!toggle) return;
+    var panel = document.querySelector('.tab-panel.active');
+    toggle.hidden = !(panel && panel.querySelector('.game-card.has-lines'));
+  }
+
+  updateLayoutToggleForTab();
 
   // ── Initialize sidebar filter ──
   updateSidebarForTab(getActiveTab());
