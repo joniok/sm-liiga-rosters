@@ -520,13 +520,15 @@ def is_u20(date_of_birth: str | None, season: int) -> bool:
 
 
 # Mapping of role codes from the roster API to display groups.
-# 2026–27 stats system uses coarser roles: STRIKER / DEFENSEMAN / GOALIE.
-FORWARD_ROLES = {"LEFT_WING", "RIGHT_WING", "CENTER", "STRIKER"}
-DEFENSE_ROLES = {"LEFT_DEFENSEMAN", "RIGHT_DEFENSEMAN", "DEFENSEMAN"}
+# 2026–27 stats system uses coarser roles: STRIKER / DEFENSEMAN / GOALIE
+# until lines are published; extras use 13th forward / 7th defenseman.
+FORWARD_ROLES = {"LEFT_WING", "RIGHT_WING", "CENTER", "STRIKER", "THIRTEENTH_STRIKER"}
+DEFENSE_ROLES = {"LEFT_DEFENSEMAN", "RIGHT_DEFENSEMAN", "DEFENSEMAN", "SEVENTH_DEFENSEMAN"}
 GOALIE_ROLES = {"GOALIE"}
-FORWARD_CODES = {"VL", "OL", "KH", "H", "KP"}
-DEFENSE_CODES = {"VP", "OP", "P"}
+FORWARD_CODES = {"VL", "OL", "KH", "H", "KP", "13. H"}
+DEFENSE_CODES = {"VP", "OP", "P", "7. P"}
 GOALIE_CODES = {"MV"}
+_COARSE_ROLES = {"STRIKER", "DEFENSEMAN", "GOALIE"}
 
 # Short role labels for display (Finnish abbreviations)
 ROLE_SHORT = {
@@ -534,9 +536,11 @@ ROLE_SHORT = {
     "RIGHT_WING": "OLH",
     "CENTER": "KH",
     "STRIKER": "H",
+    "THIRTEENTH_STRIKER": "13.H",
     "LEFT_DEFENSEMAN": "VP",
     "RIGHT_DEFENSEMAN": "OP",
     "DEFENSEMAN": "P",
+    "SEVENTH_DEFENSEMAN": "7.P",
     "GOALIE": "MV",
 }
 
@@ -551,6 +555,8 @@ ROLE_CODE_SHORT = {
     "OP": "OP",
     "P": "P",
     "MV": "MV",
+    "13. H": "13.H",
+    "7. P": "7.P",
 }
 
 _BOOL_MERGE_KEYS = (
@@ -604,6 +610,57 @@ def _dedupe_roster_players(players: list[dict]) -> list[dict]:
     return [by_id[pid] for pid in order] + passthrough
 
 
+def extract_line_memory(game_detail: dict) -> dict[str, dict[int, dict]]:
+    """Per-team line/role snapshot from a game that already has line numbers."""
+    memory: dict[str, dict[int, dict]] = {}
+    game = game_detail.get("game") or {}
+    for side, players_key in [("homeTeam", "homeTeamPlayers"), ("awayTeam", "awayTeamPlayers")]:
+        team_id = (game.get(side) or {}).get("teamId")
+        if not team_id:
+            continue
+        players = _dedupe_roster_players(game_detail.get(players_key) or [])
+        if not any((p.get("line") or 0) > 0 for p in players):
+            continue
+        slot = memory.setdefault(str(team_id), {})
+        for p in players:
+            pid = p.get("id")
+            line = p.get("line") or 0
+            if pid is None or line <= 0:
+                continue
+            slot[pid] = {
+                "line": line,
+                "role": p.get("role") or "",
+                "roleCode": p.get("roleCode") or "",
+            }
+    return memory
+
+
+def merge_line_memory(
+    into: dict[str, dict[int, dict]],
+    extra: dict[str, dict[int, dict]],
+) -> None:
+    for team_id, players in extra.items():
+        into.setdefault(str(team_id), {}).update(players)
+
+
+def _apply_line_memory(players: list[dict], memory: dict[int, dict] | None) -> None:
+    """Fill missing line/role from the team's last known roster (in-place)."""
+    if not memory:
+        return
+    for p in players:
+        pid = p.get("id")
+        remembered = memory.get(pid) if pid is not None else None
+        if not remembered:
+            continue
+        if not (p.get("line") or 0):
+            p["line"] = remembered.get("line")
+        role = p.get("role") or ""
+        if (not role or role in _COARSE_ROLES) and remembered.get("role"):
+            p["role"] = remembered["role"]
+            if remembered.get("roleCode"):
+                p["roleCode"] = remembered["roleCode"]
+
+
 def _add_helmet_and_u20_from_awards(
     award_list: list | None,
     golden_helmet_ids: set[int],
@@ -630,6 +687,7 @@ def build_roster_view(
     season: int,
     match_stats_map: dict[int, dict] | None = None,
     stats_tournament: str = TOURNAMENT_REGULAR,
+    line_memory: dict[str, dict[int, dict]] | None = None,
 ) -> dict:
     """Build a structured roster view for a single game.
 
@@ -642,6 +700,8 @@ def build_roster_view(
     """
     if match_stats_map is None:
         match_stats_map = {}
+    if line_memory is None:
+        line_memory = {}
 
     do_subtract = subtract_match_from_season_column(game_detail, stats_tournament)
 
@@ -689,6 +749,7 @@ def build_roster_view(
     for side, players_key in [("homeTeam", "homeTeamPlayers"), ("awayTeam", "awayTeamPlayers")]:
         team_info = game.get(side, {})
         players = _dedupe_roster_players(game_detail.get(players_key) or [])
+        _apply_line_memory(players, line_memory.get(str(team_info.get("teamId") or "")))
         any_line = any((p.get("line") or 0) > 0 for p in players)
 
         team_data: dict[str, Any] = {
@@ -788,10 +849,7 @@ def build_roster_view(
             }
 
             if pos == "G":
-                if not any_line or (line and line > 0):
-                    goalies.append(player_data)
-                else:
-                    extras.append(player_data)
+                goalies.append(player_data)
             elif any_line and line and line > 0:
                 lines_map.setdefault(line, []).append(player_data)
             elif not any_line and pos == "F":
@@ -809,11 +867,17 @@ def build_roster_view(
             g["isStarter"] = bool(any_line and i == 0)
 
         def _sort_forwards(forwards: list[dict]) -> None:
-            role_order = {"LEFT_WING": 0, "CENTER": 1, "RIGHT_WING": 2, "STRIKER": 1}
+            role_order = {
+                "LEFT_WING": 0, "CENTER": 1, "RIGHT_WING": 2, "STRIKER": 1,
+                "THIRTEENTH_STRIKER": 9,
+            }
             forwards.sort(key=lambda p: (role_order.get(p["role"], 9), p.get("jersey") or 999))
 
         def _sort_defense(defensemen: list[dict]) -> None:
-            def_order = {"LEFT_DEFENSEMAN": 0, "DEFENSEMAN": 1, "RIGHT_DEFENSEMAN": 2}
+            def_order = {
+                "LEFT_DEFENSEMAN": 0, "DEFENSEMAN": 1, "RIGHT_DEFENSEMAN": 2,
+                "SEVENTH_DEFENSEMAN": 9,
+            }
             defensemen.sort(key=lambda p: (def_order.get(p["role"], 9), p.get("jersey") or 999))
 
         # Build structured lines
@@ -821,6 +885,8 @@ def build_roster_view(
             line_players = lines_map[line_num]
             forwards = [p for p in line_players if p.get("pos") == "F"]
             defensemen = [p for p in line_players if p.get("pos") == "D"]
+            unknown = [p for p in line_players if p.get("pos") not in {"F", "D", "G"}]
+            forwards.extend(unknown)
             _sort_forwards(forwards)
             _sort_defense(defensemen)
             team_data["lines"].append({
@@ -849,13 +915,26 @@ def build_roster_view(
                 _sort_defense(extra_d)
                 team_data["lines"].append({
                     "lineNum": None,
-                    "label": "Muut",
+                    "label": "Poissa kokoonpanosta",
+                    "collapsed": True,
                     "forwards": extra_f + extra_other,
                     "defensemen": extra_d,
                 })
 
         team_data["goalies"] = goalies
         team_data["extras"] = extras
+
+        table_f: list[dict] = []
+        table_d: list[dict] = []
+        for line_data in team_data["lines"]:
+            if line_data.get("collapsed"):
+                continue
+            table_f.extend(line_data["forwards"])
+            table_d.extend(line_data["defensemen"])
+        table_f.sort(key=lambda p: p.get("jersey") or 999)
+        table_d.sort(key=lambda p: p.get("jersey") or 999)
+        team_data["tableForwards"] = table_f
+        team_data["tableDefensemen"] = table_d
 
         # Determine best U20 skater per team via Red Bull award.
         # If no Red Bull award, fall back to highest-scoring U20 skater.

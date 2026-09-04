@@ -55,10 +55,10 @@ async def _build_played_round(
     season: int,
     stats_map: dict[int, dict],
     stats_tournament: str,
-) -> list[dict]:
+) -> tuple[list[dict], dict[str, dict[int, dict]]]:
     """Fetch details + match stats for played games and build roster views."""
     if not games:
-        return []
+        return [], {}
 
     detail_tasks = [
         liiga_client.get_game_detail(season, g["id"])
@@ -69,6 +69,7 @@ async def _build_played_round(
     # Fetch per-player match stats for each game
     match_tasks = []
     valid_details = []
+    line_memory: dict[str, dict[int, dict]] = {}
     for detail in game_details:
         if isinstance(detail, Exception):
             continue
@@ -77,6 +78,7 @@ async def _build_played_round(
         if gid is None:
             continue
         valid_details.append(detail)
+        liiga_client.merge_line_memory(line_memory, liiga_client.extract_line_memory(detail))
         match_tasks.append(
             liiga_client.get_match_stats_for_game(detail, season, gid)
         )
@@ -93,7 +95,7 @@ async def _build_played_round(
             roster_views.append(view)
         except Exception:
             continue
-    return roster_views
+    return roster_views, line_memory
 
 
 async def _build_upcoming_round(
@@ -101,6 +103,7 @@ async def _build_upcoming_round(
     season: int,
     stats_map: dict[int, dict],
     stats_tournament: str,
+    line_memory: dict[str, dict[int, dict]] | None = None,
 ) -> list[dict]:
     """Fetch details for upcoming games and build roster views (no match stat subtraction)."""
     if not games:
@@ -120,6 +123,7 @@ async def _build_upcoming_round(
             # No match_stats_map → season stats shown as-is
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, stats_tournament=stats_tournament,
+                line_memory=line_memory,
             )
             roster_views.append(view)
         except Exception:
@@ -233,11 +237,13 @@ async def index(request: Request, stats: str | None = None):
             if pid:
                 stats_map[pid] = s
 
-    # ── Build roster views for both rounds (in parallel) ──
-    prev_task = _build_played_round(prev_round_games, season, stats_map, stats_tournament)
-    next_task = _build_upcoming_round(next_round_games, season, stats_map, stats_tournament)
-
-    prev_round_views, next_round_views = await asyncio.gather(prev_task, next_task)
+    # ── Build roster views: previous round first so upcoming can reuse lines ──
+    prev_round_views, line_memory = await _build_played_round(
+        prev_round_games, season, stats_map, stats_tournament,
+    )
+    next_round_views = await _build_upcoming_round(
+        next_round_games, season, stats_map, stats_tournament, line_memory=line_memory,
+    )
     playoff_series_phases = await series_task if series_task else []
 
     return templates.TemplateResponse("index.html", {

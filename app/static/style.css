@@ -45,37 +45,67 @@ header h1 {
   margin-bottom: 0.25rem;
 }
 
-.stats-mode-toggle {
-  display: inline-flex;
+.header-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
   margin-top: 0.65rem;
+}
+
+.stats-mode-toggle,
+.layout-toggle {
+  display: inline-flex;
+  margin-top: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
   background: var(--surface-2);
 }
 
-.stats-mode-toggle a {
+.stats-mode-toggle a,
+.layout-toggle button {
   padding: 0.4rem 0.9rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-dim);
   text-decoration: none;
+  border: none;
   border-right: 1px solid var(--border);
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
 
-.stats-mode-toggle a:last-child {
+.stats-mode-toggle a:last-child,
+.layout-toggle button:last-child {
   border-right: none;
 }
 
-.stats-mode-toggle a.active {
+.stats-mode-toggle a.active,
+.layout-toggle button.active {
   background: var(--accent);
   color: var(--bg);
 }
 
-.stats-mode-toggle a:not(.active):hover {
+.stats-mode-toggle a:not(.active):hover,
+.layout-toggle button:not(.active):hover {
   color: var(--text);
   background: rgba(88, 166, 255, 0.12);
+}
+
+/* Default: line (kenttä) layout. Table is the alternative. */
+.roster-table {
+  display: none;
+}
+
+html.layout-table .roster-lines {
+  display: none;
+}
+
+html.layout-table .roster-table {
+  display: block;
 }
 
 /* Main */
@@ -412,6 +442,41 @@ main {
   letter-spacing: 0.05em;
   color: var(--text-dim);
   padding: 0.3rem 0.5rem 0.15rem;
+}
+
+.line-group-out > summary.line-label {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  user-select: none;
+  padding: 0.4rem 0.5rem;
+}
+
+.line-group-out > summary.line-label::-webkit-details-marker,
+.line-group-out > summary.line-label::marker {
+  display: none;
+  content: "";
+}
+
+.line-group-out > summary.line-label::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.line-group-out[open] > summary.line-label::before {
+  transform: rotate(90deg);
+}
+
+.line-group-out > summary.line-label:hover {
+  color: var(--text);
 }
 
 /* Player rows */
