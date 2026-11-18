@@ -455,16 +455,23 @@ async def get_match_stats_for_game(
 ) -> dict[int, dict]:
     """Fetch per-game stats for every player in a game.
 
-    Returns {player_id: {goals, assists, points, penaltyMinutes, plusMinus}}
-    for those players who have data for the given game_id.
+    Returns ``{player_id: row}`` for players who have a game-log entry for
+    ``game_id``. Each row keeps ``goals``, ``assists``, ``points``,
+    ``penaltyMinutes`` and ``plusMinus``, and sets ``played`` when that entry
+    exists (a goalie's entry counts as played). Goalie rows also include
+    ``gkWon``, ``gkTied`` and ``gkLost`` (ints from the log's ``won`` /
+    ``tied`` / ``lost``). Callers that ignore the extra keys keep working.
     """
     # Collect all player IDs from the game detail
     player_ids: list[int] = []
+    goalie_ids: set[int] = set()
     for key in ("homeTeamPlayers", "awayTeamPlayers"):
         for p in game_detail.get(key, []):
             pid = p.get("id")
             if pid:
                 player_ids.append(pid)
+                if _position_group(p.get("role"), p.get("roleCode")) == "G":
+                    goalie_ids.add(pid)
 
     if not player_ids:
         return {}
@@ -482,13 +489,20 @@ async def get_match_stats_for_game(
                     entries = data.get("regular", []) if isinstance(data, dict) else []
                 for entry in entries:
                     if entry.get("gameId") == game_id:
-                        return pid, {
+                        row = {
                             "goals": entry.get("goals", 0) or 0,
                             "assists": entry.get("assists", 0) or 0,
                             "points": entry.get("totalPoints", 0) or 0,
                             "penaltyMinutes": entry.get("penaltyMinutes", 0) or 0,
                             "plusMinus": entry.get("plusMinus", 0) or 0,
+                            # Presence of the log entry is what subtraction uses.
+                            "played": True,
                         }
+                        if pid in goalie_ids or entry.get("goalkeeper"):
+                            row["gkWon"] = _as_int(entry.get("won"))
+                            row["gkTied"] = _as_int(entry.get("tied"))
+                            row["gkLost"] = _as_int(entry.get("lost"))
+                        return pid, row
                 return pid, None
             except Exception:
                 return pid, None
@@ -535,6 +549,16 @@ FORWARD_CODES = {"VL", "OL", "KH", "H", "KP", "13. H", "14. H"}
 DEFENSE_CODES = {"VP", "OP", "P", "7. P", "8. P"}
 GOALIE_CODES = {"MV"}
 
+# Dressed extras ("Lisäpelaajat"). Never a kenttä, even when the API sends line=4.
+DRESSED_EXTRA_ROLES = {
+    "THIRTEENTH_STRIKER", "FOURTEENTH_STRIKER",
+    "SEVENTH_DEFENSEMAN", "EIGHTH_DEFENSEMAN",
+}
+DRESSED_EXTRA_CODES = {"13. H", "14. H", "7. P", "8. P"}
+
+_FWD_SORT = {"LEFT_WING": 0, "CENTER": 1, "RIGHT_WING": 2}
+_DEF_SORT = {"LEFT_DEFENSEMAN": 0, "RIGHT_DEFENSEMAN": 1}
+
 # Short role labels for display (Finnish abbreviations)
 ROLE_SHORT = {
     "LEFT_WING": "VLH",
@@ -571,6 +595,47 @@ ROLE_CODE_SHORT = {
 _BOOL_MERGE_KEYS = (
     "captain", "alternateCaptain", "rookie", "injured", "suspended", "removed",
 )
+
+
+def _as_int(value: Any) -> int:
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _published_line(line: Any) -> int | None:
+    """Positive line number, or None when the player is not on a kenttä."""
+    if isinstance(line, bool) or line is None:
+        return None
+    try:
+        n = int(line)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _is_dressed_extra(role: str | None, role_code: str | None) -> bool:
+    return (role or "") in DRESSED_EXTRA_ROLES or (role_code or "") in DRESSED_EXTRA_CODES
+
+
+def _jersey_key(player: dict) -> int:
+    jersey = player.get("jersey")
+    return jersey if isinstance(jersey, int) else 999
+
+
+def _sort_forwards(forwards: list[dict]) -> None:
+    forwards.sort(key=lambda p: (_FWD_SORT.get(p.get("role") or "", 9), _jersey_key(p)))
+
+
+def _sort_defense(defensemen: list[dict]) -> None:
+    defensemen.sort(key=lambda p: (_DEF_SORT.get(p.get("role") or "", 9), _jersey_key(p)))
+
+
+def _sort_jersey(players: list[dict]) -> None:
+    players.sort(key=_jersey_key)
 
 
 def _role_short(role: str | None, role_code: str | None) -> str:
@@ -651,11 +716,13 @@ def build_roster_view(
     """Build a structured roster view for a single game.
 
     ``match_stats_map`` is an optional mapping of
-    ``{player_id: {goals, assists, points, penaltyMinutes, plusMinus}}``
-    containing the per-game stats for this match.  When provided the
-    season totals shown will be *adjusted* (season minus match) when
+    ``{player_id: {goals, assists, points, penaltyMinutes, plusMinus, played}}``.
+    Goalie rows may also include ``gkWon``, ``gkTied`` and ``gkLost``.
+    When provided, season totals are adjusted (season minus this game) when
     ``stats_tournament`` matches the game's phase (e.g. runkosarja stats
-    on a playoff game are not reduced by that playoff outing).
+    on a playoff game are not reduced by that playoff outing). ``games``
+    drops by one when the player has a log entry; for goalies ``games`` is
+    adjusted ``playedGames`` and the win/tie/loss columns follow the log.
     """
     if match_stats_map is None:
         match_stats_map = {}
@@ -706,7 +773,7 @@ def build_roster_view(
     for side, players_key in [("homeTeam", "homeTeamPlayers"), ("awayTeam", "awayTeamPlayers")]:
         team_info = game.get(side, {})
         players = _dedupe_roster_players(game_detail.get(players_key) or [])
-        any_line = any((p.get("line") or 0) > 0 for p in players)
+        any_line = any(_published_line(p.get("line")) is not None for p in players)
 
         team_data: dict[str, Any] = {
             "teamName": team_info.get("teamName", ""),
@@ -714,15 +781,19 @@ def build_roster_view(
             "logos": team_info.get("logos", {}),
             "goals": team_info.get("goals", 0),
             "lines": [],
+            "dressedExtras": {"forwards": [], "defensemen": []},
+            "scratches": {"forwards": [], "defensemen": [], "goalies": []},
             "goalies": [],
-            "extras": [],
         }
 
-        # Group players by line
+        # Group players by line. Unpublished rosters stay one "Pelaajat" group.
         lines_map: dict[int, list[dict]] = {}
         goalies: list[dict] = []
-        extras: list[dict] = []
-        extra_goalies: list[dict] = []
+        dressed_f: list[dict] = []
+        dressed_d: list[dict] = []
+        scratch_f: list[dict] = []
+        scratch_d: list[dict] = []
+        scratch_g: list[dict] = []
         unlined_forwards: list[dict] = []
         unlined_defense: list[dict] = []
 
@@ -757,6 +828,31 @@ def build_roster_view(
             s_pim = stats.get("penaltyMinutes", 0)
             s_pm = stats.get("plusMinus", 0)
 
+            # A row in match_stats_map is a game-log entry. ``played`` defaults
+            # to true so older maps that only carry scoring keys still subtract.
+            played_this_game = bool(ms) and bool(ms.get("played", True))
+            game_delta = 1 if do_subtract and played_this_game else 0
+            if pos == "G":
+                # UI shows games actually played, not games dressed.
+                season_games = _as_int(stats.get("playedGames")) - game_delta
+                gk_wins = _as_int(stats.get("gkWins"))
+                gk_losses = _as_int(stats.get("gkLosses"))
+                gk_ties = _as_int(stats.get("gkTies"))
+                if game_delta:
+                    gk_wins -= _as_int(ms.get("gkWon"))
+                    gk_losses -= _as_int(ms.get("gkLost"))
+                    gk_ties -= _as_int(ms.get("gkTied"))
+            else:
+                season_games = _as_int(stats.get("games")) - game_delta
+                gk_wins = stats.get("gkWins", 0)
+                gk_losses = stats.get("gkLosses", 0)
+                gk_ties = stats.get("gkTies", 0)
+
+            if isinstance(stats, dict) and "isU20" in stats:
+                u20_flag = bool(stats.get("isU20"))
+            else:
+                u20_flag = is_u20(p.get("dateOfBirth"), season)
+
             player_data = {
                 "id": player_id,
                 "firstName": _title(p.get("firstName", "")),
@@ -774,7 +870,7 @@ def build_roster_view(
                 "suspended": p.get("suspended", False),
                 "pictureUrl": p.get("pictureUrl"),
                 "dateOfBirth": p.get("dateOfBirth"),
-                "isU20": is_u20(p.get("dateOfBirth"), season),
+                "isU20": u20_flag,
                 "isBestU20": player_id in redbull_ids,
                 "isGoldenHelmet": player_id in golden_helmet_ids,
                 "nationality": p.get("nationality", ""),
@@ -785,8 +881,9 @@ def build_roster_view(
                 "matchPIM": m_pim,
                 "matchPlusMinus": m_pm,
                 "hasMatchStats": bool(m_goals or m_assists or m_pim or m_pm),
+                "isStarter": False,
                 # Adjusted season stats (season total minus this game)
-                "games": stats.get("games", 0),
+                "games": season_games,
                 "goals": s_goals - sub_g,
                 "assists": s_assists - sub_a,
                 "points": s_points - sub_pt,
@@ -796,53 +893,48 @@ def build_roster_view(
                 "shots": stats.get("shots", 0),
                 "shotPercentage": stats.get("shotPercentage", 0),
                 "timeOnIceAvg": _format_toi(stats.get("timeOnIceAvg", 0)),
-                # Goalie stats (not adjusted – averages don't subtract)
+                # Averages stay season-level. Goalie W-T-L are adjusted above.
                 "savePercentage": stats.get("savePercentage", 0),
                 "goalsAgainstAvg": stats.get("goalsAgainstAvg", 0),
-                "gkWins": stats.get("gkWins", 0),
-                "gkLosses": stats.get("gkLosses", 0),
-                "gkTies": stats.get("gkTies", 0),
+                "gkWins": gk_wins,
+                "gkLosses": gk_losses,
+                "gkTies": gk_ties,
                 "shutOut": stats.get("shutOut", 0),
             }
 
-            if pos == "G":
-                if any_line and not (line and line > 0):
-                    extra_goalies.append(player_data)
+            line_num = _published_line(line)
+            if not any_line:
+                # Do not invent lines or split Lisäpelaajat / scratches.
+                if pos == "D":
+                    unlined_defense.append(player_data)
+                elif pos == "G":
+                    goalies.append(player_data)
+                else:
+                    unlined_forwards.append(player_data)
+            elif _is_dressed_extra(role, role_code):
+                if pos == "D":
+                    dressed_d.append(player_data)
+                else:
+                    dressed_f.append(player_data)
+            elif pos == "G":
+                if line_num is None:
+                    scratch_g.append(player_data)
                 else:
                     goalies.append(player_data)
-            elif any_line and line and line > 0:
-                lines_map.setdefault(line, []).append(player_data)
-            elif not any_line and pos == "F":
-                unlined_forwards.append(player_data)
-            elif not any_line and pos == "D":
-                unlined_defense.append(player_data)
+            elif line_num is None:
+                # STRIKER/H and DEFENSEMAN/P with no line, plus any other unlined skater.
+                if pos == "D":
+                    scratch_d.append(player_data)
+                else:
+                    scratch_f.append(player_data)
             else:
-                extras.append(player_data)
+                lines_map.setdefault(line_num, []).append(player_data)
 
-        # Sort goalies by line number (starter first, preserving API order for ties)
-        goalies.sort(key=lambda g: (g.get("line") or 999, g.get("jersey") or 999))
-
-        # Mark the first goalie as the starting goalkeeper only when lines are set
+        # Starter is the first goalie only after lines are published (line 1, then 2).
+        goalies.sort(key=lambda g: (_published_line(g.get("line")) or 999, _jersey_key(g)))
         for i, g in enumerate(goalies):
             g["isStarter"] = bool(any_line and i == 0)
 
-        def _sort_forwards(forwards: list[dict]) -> None:
-            role_order = {
-                "LEFT_WING": 0, "CENTER": 1, "RIGHT_WING": 2, "STRIKER": 1,
-                "THIRTEENTH_STRIKER": 9,
-                "FOURTEENTH_STRIKER": 9,
-            }
-            forwards.sort(key=lambda p: (role_order.get(p["role"], 9), p.get("jersey") or 999))
-
-        def _sort_defense(defensemen: list[dict]) -> None:
-            def_order = {
-                "LEFT_DEFENSEMAN": 0, "DEFENSEMAN": 1, "RIGHT_DEFENSEMAN": 2,
-                "SEVENTH_DEFENSEMAN": 9,
-                "EIGHTH_DEFENSEMAN": 9,
-            }
-            defensemen.sort(key=lambda p: (def_order.get(p["role"], 9), p.get("jersey") or 999))
-
-        # Build structured lines
         for line_num in sorted(lines_map.keys()):
             line_players = lines_map[line_num]
             forwards = [p for p in line_players if p.get("pos") == "F"]
@@ -868,45 +960,42 @@ def build_roster_view(
                 "defensemen": unlined_defense,
             })
 
-        if extras:
-            extra_f = [p for p in extras if p.get("pos") == "F"]
-            extra_d = [p for p in extras if p.get("pos") == "D"]
-            extra_other = [p for p in extras if p.get("pos") not in {"F", "D"}]
-            if extra_f or extra_d or extra_other:
-                _sort_forwards(extra_f)
-                _sort_defense(extra_d)
-                team_data["lines"].append({
-                    "lineNum": None,
-                    "label": "Poissa kokoonpanosta",
-                    "collapsed": True,
-                    "forwards": extra_f + extra_other,
-                    "defensemen": extra_d,
-                })
-
+        _sort_jersey(dressed_f)
+        _sort_jersey(dressed_d)
+        _sort_jersey(scratch_f)
+        _sort_jersey(scratch_d)
+        _sort_jersey(scratch_g)
+        team_data["dressedExtras"] = {"forwards": dressed_f, "defensemen": dressed_d}
+        team_data["scratches"] = {
+            "forwards": scratch_f,
+            "defensemen": scratch_d,
+            "goalies": scratch_g,
+        }
         team_data["goalies"] = goalies
-        team_data["extraGoalies"] = extra_goalies
-        team_data["extras"] = extras
 
         table_f: list[dict] = []
         table_d: list[dict] = []
         for line_data in team_data["lines"]:
-            if line_data.get("collapsed"):
-                continue
             table_f.extend(line_data["forwards"])
             table_d.extend(line_data["defensemen"])
-        table_f.sort(key=lambda p: p.get("jersey") or 999)
-        table_d.sort(key=lambda p: p.get("jersey") or 999)
+        table_f.extend(dressed_f)
+        table_d.extend(dressed_d)
+        _sort_jersey(table_f)
+        _sort_jersey(table_d)
         team_data["tableForwards"] = table_f
         team_data["tableDefensemen"] = table_d
 
-        # Determine best U20 skater per team via Red Bull award.
-        # If no Red Bull award, fall back to highest-scoring U20 skater.
+        # Best U20 skater per team via Red Bull award. If nobody has the award,
+        # fall back to the highest-scoring player whose isU20 is true.
         if not redbull_ids:
             all_skaters: list[dict] = []
             for line_data in team_data["lines"]:
                 all_skaters.extend(line_data["forwards"])
                 all_skaters.extend(line_data["defensemen"])
-            all_skaters.extend(team_data["extras"])
+            all_skaters.extend(dressed_f)
+            all_skaters.extend(dressed_d)
+            all_skaters.extend(scratch_f)
+            all_skaters.extend(scratch_d)
 
             u20_skaters = [p for p in all_skaters if p.get("isU20")]
             if u20_skaters:
