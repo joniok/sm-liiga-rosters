@@ -97,10 +97,12 @@ class TemplateSmokeTests(unittest.TestCase):
                 {"id": 3, "firstName": "EARLY", "lastName": "WING", "role": "STRIKER", "jersey": 12},
                 {"id": 4, "firstName": "BACK", "lastName": "PAIR", "role": "DEFENSEMAN", "jersey": 6},
                 {"id": 5, "firstName": "FIRST", "lastName": "NET", "role": "GOALIE", "jersey": 31},
+                {"id": 6, "firstName": "NEW", "lastName": "CALLUP", "role": "STRIKER", "jersey": 8},
             ],
             "awayTeamPlayers": [],
         }
         stats = {
+            1: {"games": 0, "goals": 0, "assists": 0, "points": 0},
             2: {"games": 10, "goals": 3, "assists": 4, "points": 7},
             3: {"games": 11, "goals": 1, "assists": 2, "points": 3},
             4: {"games": 12, "goals": 0, "assists": 5, "points": 5},
@@ -125,9 +127,11 @@ class TemplateSmokeTests(unittest.TestCase):
         lines_html = html.split('class="roster-lines"', 1)[1].split('class="roster-table"', 1)[0]
         self.assertLess(lines_html.find("Maalivahdit"), lines_html.find("Puolustajat"))
         self.assertLess(lines_html.find("Puolustajat"), lines_html.find("Hyökkääjät"))
+        self.assertLess(lines_html.find("#8"), lines_html.find("#12"))
         self.assertLess(lines_html.find("#12"), lines_html.find("#71"))
         self.assertIn("First Net", lines_html)
         self.assertIn("Back Pair", lines_html)
+        self.assertIn("New Callup", lines_html)
         self.assertNotIn("Idle Skip", lines_html)
         self.assertNotIn("stats-table", lines_html)
         self.assertIn('class="player goalie', lines_html)

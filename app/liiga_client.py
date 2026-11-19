@@ -936,8 +936,9 @@ def build_roster_view(
 
             line_num = _published_line(line)
             if not any_line:
-                # Full squad, not a game roster: skip players who have not played.
-                if (player_data.get("games") or 0) <= 0:
+                # Full squad, not a game roster: skip players confirmed at 0 GP.
+                # A missing stats row is unknown (the stats call can fail), not idle.
+                if player_id in season_stats_map and (player_data.get("games") or 0) <= 0:
                     continue
                 if pos == "D":
                     unlined_defense.append(player_data)

@@ -289,7 +289,7 @@ class RosterViewTests(unittest.TestCase):
                 self.assertIs(view[side].get("linesPublished"), True)
 
     def test_unpublished_roster_is_position_sections_without_idle_players(self) -> None:
-        """Pre-game squad: drop 0 GP, sort by jersey, goalies then D then F."""
+        """Pre-game squad: drop confirmed 0 GP, keep players with no stats row."""
         detail = {
             "game": {
                 "id": 4242,
@@ -339,11 +339,21 @@ class RosterViewTests(unittest.TestCase):
              for line in home["lines"]],
             [
                 ("Puolustajat", [6, 5], []),
-                ("Hyökkääjät", [], [3, 2]),
+                ("Hyökkääjät", [], [10, 3, 2]),
             ],
         )
         shown_ids = {player["id"] for player in _collect(home)["lines_f"] + _collect(home)["lines_d"] + _collect(home)["goalies"]}
-        self.assertEqual(shown_ids, {2, 3, 5, 6, 8, 9})
+        self.assertEqual(shown_ids, {2, 3, 5, 6, 8, 9, 10})
+        self.assertEqual(next(p for p in _collect(home)["lines_f"] if p["id"] == 10)["games"], 0)
+
+        # Stats endpoint down: every roster player stays, with empty season columns.
+        outage = _view(detail, {})
+        outage_home = outage["homeTeam"]
+        outage_ids = {
+            player["id"]
+            for player in _collect(outage_home)["lines_f"] + _collect(outage_home)["lines_d"] + _collect(outage_home)["goalies"]
+        }
+        self.assertEqual(outage_ids, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
 
     def test_upcoming_game_does_not_subtract_season_goals(self) -> None:
         chosen = None
