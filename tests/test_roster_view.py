@@ -289,7 +289,7 @@ class RosterViewTests(unittest.TestCase):
                 self.assertIs(view[side].get("linesPublished"), True)
 
     def test_unpublished_roster_is_position_sections_without_idle_players(self) -> None:
-        """Pre-game squad: drop confirmed 0 GP, keep players with no stats row."""
+        """Pre-game squad: drop 0 GP skaters and goalies, including players with no stats row."""
         detail = {
             "game": {
                 "id": 4242,
@@ -339,21 +339,53 @@ class RosterViewTests(unittest.TestCase):
              for line in home["lines"]],
             [
                 ("Puolustajat", [6, 5], []),
-                ("Hyökkääjät", [], [10, 3, 2]),
+                ("Hyökkääjät", [], [3, 2]),
             ],
         )
         shown_ids = {player["id"] for player in _collect(home)["lines_f"] + _collect(home)["lines_d"] + _collect(home)["goalies"]}
-        self.assertEqual(shown_ids, {2, 3, 5, 6, 8, 9, 10})
-        self.assertEqual(next(p for p in _collect(home)["lines_f"] if p["id"] == 10)["games"], 0)
+        self.assertEqual(shown_ids, {2, 3, 5, 6, 8, 9})
 
-        # Stats endpoint down: every roster player stays, with empty season columns.
-        outage = _view(detail, {})
-        outage_home = outage["homeTeam"]
-        outage_ids = {
-            player["id"]
-            for player in _collect(outage_home)["lines_f"] + _collect(outage_home)["lines_d"] + _collect(outage_home)["goalies"]
+    def test_announced_lines_keep_debutant_skaters_and_goalies(self) -> None:
+        """A published kenttä keeps 0 GP skaters and goalies, including players with no stats row."""
+        detail = {
+            "game": {
+                "id": 4243,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0, "logos": {}},
+                "awayTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0, "logos": {}},
+            },
+            "awards": [],
+            "homeTeamPlayers": [
+                {"id": 1, "firstName": "DEBUT", "lastName": "WING", "role": "LEFT_WING", "line": 1, "jersey": 15},
+                {"id": 2, "firstName": "DEBUT", "lastName": "DEFENSE", "role": "LEFT_DEFENSEMAN", "line": 1, "jersey": 55},
+                {"id": 3, "firstName": "DEBUT", "lastName": "GOALIE", "role": "GOALIE", "line": 1, "jersey": 30},
+                {"id": 4, "firstName": "VETERAN", "lastName": "CENTER", "role": "CENTER", "line": 1, "jersey": 9},
+                {"id": 5, "firstName": "NO", "lastName": "ROW", "role": "RIGHT_WING", "line": 2, "jersey": 17},
+                {"id": 6, "firstName": "BACKUP", "lastName": "DEBUT", "role": "GOALIE", "line": 2, "jersey": 1},
+            ],
+            "awayTeamPlayers": [],
         }
-        self.assertEqual(outage_ids, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+        stats = {
+            1: {"games": 0, "goals": 0, "assists": 0, "points": 0},
+            2: {"games": 0, "goals": 0, "assists": 0, "points": 0},
+            3: {"playedGames": 0, "games": 0},
+            4: {"games": 20, "goals": 5, "assists": 5, "points": 10},
+            6: {"playedGames": 0, "games": 0},
+        }
+        view = _view(detail, stats)
+        home = view["homeTeam"]
+        self.assertIs(view.get("hasLines"), True)
+        self.assertIs(home.get("linesPublished"), True)
+        buckets = _collect(home)
+        self.assertEqual({p["id"] for p in buckets["lines_f"]}, {1, 4, 5})
+        self.assertEqual({p["id"] for p in buckets["lines_d"]}, {2})
+        self.assertEqual([g["id"] for g in buckets["goalies"]], [3, 6])
+        self.assertTrue(buckets["goalies"][0]["isStarter"])
+        self.assertFalse(buckets["goalies"][1]["isStarter"])
+        for debutant_id in (1, 2, 3, 5, 6):
+            self.assertEqual(_find(view, debutant_id)["games"], 0)
 
     def test_upcoming_game_does_not_subtract_season_goals(self) -> None:
         chosen = None

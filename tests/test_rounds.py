@@ -98,6 +98,7 @@ class TemplateSmokeTests(unittest.TestCase):
                 {"id": 4, "firstName": "BACK", "lastName": "PAIR", "role": "DEFENSEMAN", "jersey": 6},
                 {"id": 5, "firstName": "FIRST", "lastName": "NET", "role": "GOALIE", "jersey": 31},
                 {"id": 6, "firstName": "NEW", "lastName": "CALLUP", "role": "STRIKER", "jersey": 8},
+                {"id": 7, "firstName": "IDLE", "lastName": "NET", "role": "GOALIE", "jersey": 1},
             ],
             "awayTeamPlayers": [],
         }
@@ -107,6 +108,7 @@ class TemplateSmokeTests(unittest.TestCase):
             3: {"games": 11, "goals": 1, "assists": 2, "points": 3},
             4: {"games": 12, "goals": 0, "assists": 5, "points": 5},
             5: {"playedGames": 9, "games": 9, "savePercentage": 92.0, "goalsAgainstAvg": 2.05},
+            7: {"playedGames": 0, "games": 3, "savePercentage": 0},
         }
         view = _view(detail, stats)
         env = Environment(loader=FileSystemLoader(str(ROOT / "app" / "templates")))
@@ -127,12 +129,12 @@ class TemplateSmokeTests(unittest.TestCase):
         lines_html = html.split('class="roster-lines"', 1)[1].split('class="roster-table"', 1)[0]
         self.assertLess(lines_html.find("Maalivahdit"), lines_html.find("Puolustajat"))
         self.assertLess(lines_html.find("Puolustajat"), lines_html.find("Hyökkääjät"))
-        self.assertLess(lines_html.find("#8"), lines_html.find("#12"))
         self.assertLess(lines_html.find("#12"), lines_html.find("#71"))
         self.assertIn("First Net", lines_html)
         self.assertIn("Back Pair", lines_html)
-        self.assertIn("New Callup", lines_html)
+        self.assertNotIn("New Callup", lines_html)
         self.assertNotIn("Idle Skip", lines_html)
+        self.assertNotIn("Idle Net", lines_html)
         self.assertNotIn("stats-table", lines_html)
         self.assertIn('class="player goalie', lines_html)
         self.assertIn('class="player"', lines_html)
