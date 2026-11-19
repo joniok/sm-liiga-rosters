@@ -125,7 +125,7 @@
 <section class="table-block">
   <h4 class="line-label">{{ label }}</h4>
   <div class="table-scroll">
-    <table class="stats-table" aria-label="{{ label }}">
+    <table class="stats-table{% if show_match_stats %} stats-table--match{% endif %}" aria-label="{{ label }}">
       <thead>
         <tr>
           <th scope="col" class="col-num">#</th>
