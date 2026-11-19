@@ -819,11 +819,6 @@ details[open] > summary > .chevron::before {
 .stat-label {
   color: var(--text-dim);
   font-weight: 600;
-  margin-right: 0.15rem;
-}
-
-.summary-games .stat-label {
-  margin-right: 0;
   margin-left: 0.15rem;
 }
 
