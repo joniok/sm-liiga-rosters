@@ -822,7 +822,7 @@ details[open] > summary > .chevron::before {
 .stat-label {
   color: var(--text-dim);
   font-weight: 600;
-  margin-right: 0.15rem;
+  margin-left: 0.15rem;
 }
 
 .stat-scoring {

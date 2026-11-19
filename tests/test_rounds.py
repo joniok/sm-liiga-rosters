@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from datetime import datetime
@@ -69,6 +70,15 @@ class TemplateSmokeTests(unittest.TestCase):
         self.assertIn("xGE", html)
         self.assertIn("Lisäpelaajat", html)
         self.assertNotIn("None", html.split("player-name")[1][:40])
+        summaries = re.findall(
+            r'class="summary-games" title="Ottelut">(\d+)<span class="stat-label">O</span>',
+            html,
+        )
+        self.assertTrue(summaries)
+        self.assertNotIn(
+            '<span class="summary-games" title="Ottelut"><span class="stat-label">O</span>',
+            html,
+        )
 
     def test_unpublished_roster_renders_player_cards_in_position_order(self) -> None:
         detail = {
