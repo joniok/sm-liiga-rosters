@@ -56,7 +56,7 @@
     </span>
     <span class="summary-stats">
       {{ match_pill(p, show_match_stats) }}
-      <span class="summary-games" title="Ottelut"><span class="stat-label">O</span>{{ p.games | default(0) }}</span>
+      <span class="summary-games" title="Ottelut">{{ p.games | default(0) }}<span class="stat-label">O</span></span>
       <span class="stat-scoring" title="Maalit + syötöt = pisteet">
         <span class="stat-goals">{{ p.goals | default(0) }}</span><span class="stat-sep">+</span><span class="stat-assists">{{ p.assists | default(0) }}</span><span class="stat-sep">=</span><span class="stat-points">{{ p.points | default(0) }}</span>
       </span>

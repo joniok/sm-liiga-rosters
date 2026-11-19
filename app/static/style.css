@@ -822,6 +822,11 @@ details[open] > summary > .chevron::before {
   margin-right: 0.15rem;
 }
 
+.summary-games .stat-label {
+  margin-right: 0;
+  margin-left: 0.15rem;
+}
+
 .stat-scoring {
   display: inline-flex;
   align-items: baseline;
