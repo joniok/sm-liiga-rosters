@@ -285,6 +285,65 @@ class RosterViewTests(unittest.TestCase):
         for _label, detail in self.games:
             view = _view(detail, self.stats)
             self.assertIs(view.get("hasLines"), True)
+            for side in SIDES:
+                self.assertIs(view[side].get("linesPublished"), True)
+
+    def test_unpublished_roster_is_position_sections_without_idle_players(self) -> None:
+        """Pre-game squad: drop 0 GP, sort by jersey, goalies then D then F."""
+        detail = {
+            "game": {
+                "id": 4242,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0, "logos": {}},
+                "awayTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0, "logos": {}},
+            },
+            "awards": [],
+            "homeTeamPlayers": [
+                {"id": 1, "firstName": "ZERO", "lastName": "FORWARD", "role": "STRIKER", "roleCode": "H", "jersey": 10},
+                {"id": 2, "firstName": "HIGH", "lastName": "NUMBER", "role": "STRIKER", "roleCode": "H", "jersey": 91},
+                {"id": 3, "firstName": "LOW", "lastName": "NUMBER", "role": "STRIKER", "roleCode": "H", "jersey": 9},
+                {"id": 4, "firstName": "IDLE", "lastName": "DEFENSE", "role": "DEFENSEMAN", "roleCode": "P", "jersey": 4},
+                {"id": 5, "firstName": "DEE", "lastName": "TWO", "role": "DEFENSEMAN", "roleCode": "P", "jersey": 44},
+                {"id": 6, "firstName": "DEE", "lastName": "ONE", "role": "DEFENSEMAN", "roleCode": "P", "jersey": 5},
+                {"id": 7, "firstName": "IDLE", "lastName": "GOALIE", "role": "GOALIE", "roleCode": "MV", "jersey": 30},
+                {"id": 8, "firstName": "NET", "lastName": "HIGH", "role": "GOALIE", "roleCode": "MV", "jersey": 35},
+                {"id": 9, "firstName": "NET", "lastName": "LOW", "role": "GOALIE", "roleCode": "MV", "jersey": 1},
+                {"id": 10, "firstName": "NO", "lastName": "STATS", "role": "STRIKER", "roleCode": "H", "jersey": 8},
+            ],
+            "awayTeamPlayers": [],
+        }
+        stats = {
+            1: {"games": 0, "goals": 0, "assists": 0, "points": 0},
+            2: {"games": 20, "goals": 4, "assists": 6, "points": 10},
+            3: {"games": 15, "goals": 2, "assists": 3, "points": 5},
+            4: {"games": 0, "goals": 0, "assists": 0, "points": 0},
+            5: {"games": 18, "goals": 1, "assists": 7, "points": 8},
+            6: {"games": 12, "goals": 0, "assists": 4, "points": 4},
+            7: {"playedGames": 0, "games": 2, "goals": 0, "assists": 0, "points": 0},
+            8: {"playedGames": 10, "games": 12, "goals": 0, "assists": 0, "points": 0, "savePercentage": 91.5},
+            9: {"playedGames": 8, "games": 9, "goals": 0, "assists": 0, "points": 0, "savePercentage": 90.1},
+        }
+        view = _view(detail, stats)
+        self.assertIs(view.get("hasLines"), False)
+        home = view["homeTeam"]
+        self.assertIs(home.get("linesPublished"), False)
+        self.assertEqual(
+            [goalie["id"] for goalie in home["goalies"]],
+            [9, 8],
+        )
+        self.assertTrue(all(not goalie.get("isStarter") for goalie in home["goalies"]))
+        self.assertEqual(
+            [(line["label"], [p["id"] for p in line["defensemen"]], [p["id"] for p in line["forwards"]])
+             for line in home["lines"]],
+            [
+                ("Puolustajat", [6, 5], []),
+                ("Hyökkääjät", [], [3, 2]),
+            ],
+        )
+        shown_ids = {player["id"] for player in _collect(home)["lines_f"] + _collect(home)["lines_d"] + _collect(home)["goalies"]}
+        self.assertEqual(shown_ids, {2, 3, 5, 6, 8, 9})
 
     def test_upcoming_game_does_not_subtract_season_goals(self) -> None:
         chosen = None

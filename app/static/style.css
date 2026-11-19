@@ -145,12 +145,15 @@ html.layout-table .roster-table {
   display: block;
 }
 
-.game-card.no-lines .roster-lines {
-  display: none;
+/* Unpublished rosters have no kentät, so they stay on the player cards. */
+.game-card.no-lines .roster-lines,
+html.layout-table .game-card.no-lines .roster-lines {
+  display: block;
 }
 
-.game-card.no-lines .roster-table {
-  display: block;
+.game-card.no-lines .roster-table,
+html.layout-table .game-card.no-lines .roster-table {
+  display: none;
 }
 
 /* Main. Full window width so roster tables are not stuck in a 72rem column. */
