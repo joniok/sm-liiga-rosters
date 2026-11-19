@@ -20,7 +20,7 @@
 <body>
 
 {% macro finish_label(kind) -%}
-{%- if kind in ['OVERTIME', 'ENDED_DURING_OVERTIME'] -%}JA
+{%- if kind in ['OVERTIME', 'ENDED_DURING_OVERTIME', 'ENDED_DURING_EXTENDED_GAME_TIME'] -%}JA
 {%- elif kind in ['WINNING_SHOT_COMPETITION', 'ENDED_DURING_WINNING_SHOT_COMPETITION'] -%}VL
 {%- else -%}{{ kind }}
 {%- endif -%}
