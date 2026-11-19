@@ -98,6 +98,19 @@
 </details>
 {% endmacro %}
 
+{% macro goalie_section(goalies, show_match_stats=false) %}
+{% if goalies %}
+<section class="line-block goalies-block">
+  <h4 class="line-label">Maalivahdit</h4>
+  <div class="skater-group">
+    {% for p in goalies %}
+    {{ goalie_player(p, show_match_stats) }}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endmacro %}
+
 {% macro line_block(label, forwards, defensemen, show_match_stats=false) %}
 {% if forwards or defensemen %}
 <section class="line-block">
@@ -234,21 +247,17 @@
   <h3 class="roster-title">{{ side.teamName }}</h3>
 
   <div class="roster-lines">
+    {% if not side.linesPublished %}
+    {{ goalie_section(side.goalies, show_match_stats) }}
+    {% endif %}
     {% for line in side.lines %}
     {{ line_block(line.label or (line.lineNum ~ '. kenttä' if line.lineNum else 'Pelaajat'), line.forwards, line.defensemen, show_match_stats) }}
     {% endfor %}
     {% if side.dressedExtras %}
     {{ line_block('Lisäpelaajat', side.dressedExtras.forwards, side.dressedExtras.defensemen, show_match_stats) }}
     {% endif %}
-    {% if side.goalies %}
-    <section class="line-block goalies-block">
-      <h4 class="line-label">Maalivahdit</h4>
-      <div class="skater-group">
-        {% for p in side.goalies %}
-        {{ goalie_player(p, show_match_stats) }}
-        {% endfor %}
-      </div>
-    </section>
+    {% if side.linesPublished %}
+    {{ goalie_section(side.goalies, show_match_stats) }}
     {% endif %}
   </div>
 

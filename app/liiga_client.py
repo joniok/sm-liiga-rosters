@@ -810,12 +810,14 @@ def build_roster_view(
             "logos": team_info.get("logos", {}),
             "goals": team_info.get("goals", 0),
             "lines": [],
+            "linesPublished": any_line,
             "dressedExtras": {"forwards": [], "defensemen": []},
             "scratches": {"forwards": [], "defensemen": [], "goalies": []},
             "goalies": [],
         }
 
-        # Group players by line. Unpublished rosters stay one "Pelaajat" group.
+        # Group players by line. An unpublished roster is the full squad,
+        # later split into Maalivahdit / Puolustajat / Hyökkääjät.
         lines_map: dict[int, list[dict]] = {}
         goalies: list[dict] = []
         dressed_f: list[dict] = []
@@ -934,7 +936,10 @@ def build_roster_view(
 
             line_num = _published_line(line)
             if not any_line:
-                # Do not invent lines or split Lisäpelaajat / scratches.
+                # Full squad, not a game roster: skip players confirmed at 0 GP.
+                # A missing stats row is unknown (the stats call can fail), not idle.
+                if player_id in season_stats_map and (player_data.get("games") or 0) <= 0:
+                    continue
                 if pos == "D":
                     unlined_defense.append(player_data)
                 elif pos == "G":
@@ -980,15 +985,24 @@ def build_roster_view(
                 "defensemen": defensemen,
             })
 
-        if not any_line and (unlined_forwards or unlined_defense):
-            _sort_forwards(unlined_forwards)
-            _sort_defense(unlined_defense)
-            team_data["lines"].append({
-                "lineNum": None,
-                "label": "Pelaajat",
-                "forwards": unlined_forwards,
-                "defensemen": unlined_defense,
-            })
+        if not any_line:
+            _sort_jersey(unlined_forwards)
+            _sort_jersey(unlined_defense)
+            _sort_jersey(goalies)
+            if unlined_defense:
+                team_data["lines"].append({
+                    "lineNum": None,
+                    "label": "Puolustajat",
+                    "forwards": [],
+                    "defensemen": unlined_defense,
+                })
+            if unlined_forwards:
+                team_data["lines"].append({
+                    "lineNum": None,
+                    "label": "Hyökkääjät",
+                    "forwards": unlined_forwards,
+                    "defensemen": [],
+                })
 
         _sort_jersey(dressed_f)
         _sort_jersey(dressed_d)
