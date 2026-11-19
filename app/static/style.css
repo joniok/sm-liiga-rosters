@@ -810,6 +810,18 @@ details[open] > summary > .chevron::before {
   font-size: 0.95rem;
 }
 
+.summary-games,
+.summary-gaa {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.stat-label {
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-right: 0.15rem;
+}
+
 .stat-scoring {
   display: inline-flex;
   align-items: baseline;

@@ -892,6 +892,9 @@ def build_roster_view(
                 "powerplayGoals": stats.get("powerplayGoals", 0),
                 "shots": stats.get("shots", 0),
                 "shotPercentage": stats.get("shotPercentage", 0),
+                "expectedGoals": _expected_goals(stats),
+                "expectedGoalsDiff": _expected_goals_diff(stats),
+                "shotsOnGoalPct": _shots_on_goal_pct(stats),
                 "timeOnIceAvg": _format_toi(stats.get("timeOnIceAvg", 0)),
                 # Averages stay season-level. Goalie W-T-L are adjusted above.
                 "savePercentage": stats.get("savePercentage", 0),
@@ -1019,6 +1022,27 @@ def _title(name: str) -> str:
     if not name:
         return name
     return name.title()
+
+
+def _expected_goals(stats: dict) -> float:
+    """Season xG (maaliodottama). Not reduced by the current game."""
+    try:
+        return float(stats.get("expectedGoals") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _expected_goals_diff(stats: dict) -> float:
+    """xGE: season goals minus xG, matching Liiga.fi."""
+    return _as_int(stats.get("goals")) - _expected_goals(stats)
+
+
+def _shots_on_goal_pct(stats: dict) -> float:
+    """LKM%: goals divided by shots on goal (shotsIntoGoal)."""
+    shots_on_goal = _as_int(stats.get("shotsIntoGoal"))
+    if shots_on_goal <= 0:
+        return 0.0
+    return _as_int(stats.get("goals")) / shots_on_goal * 100
 
 
 def _format_toi(seconds: float) -> str:

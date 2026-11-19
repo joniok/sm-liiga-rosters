@@ -56,16 +56,20 @@
     </span>
     <span class="summary-stats">
       {{ match_pill(p, show_match_stats) }}
+      <span class="summary-games" title="Ottelut"><span class="stat-label">O</span>{{ p.games | default(0) }}</span>
       <span class="stat-scoring" title="Maalit + syötöt = pisteet">
         <span class="stat-goals">{{ p.goals | default(0) }}</span><span class="stat-sep">+</span><span class="stat-assists">{{ p.assists | default(0) }}</span><span class="stat-sep">=</span><span class="stat-points">{{ p.points | default(0) }}</span>
       </span>
     </span>
   </summary>
   <dl class="player-body">
-    <div><dt>Ottelut</dt><dd>{{ p.games | default(0) }}</dd></div>
+    <div><dt>Jääaika</dt><dd>{{ p.timeOnIceAvg }}</dd></div>
     <div><dt>+/−</dt><dd class="stat-pm{% if pm > 0 %} positive{% elif pm < 0 %} negative{% endif %}">{{ '%+d' % pm }}</dd></div>
     <div><dt>Jäähyt</dt><dd class="stat-pim">{{ p.penaltyMinutes | default(0) }}</dd></div>
-    <div><dt>Jääaika</dt><dd>{{ p.timeOnIceAvg }}</dd></div>
+    <div><dt title="Maaliodottama">xG</dt><dd>{{ '%.2f' % (p.expectedGoals | default(0)) }}</dd></div>
+    {% set xge = p.expectedGoalsDiff | default(0) %}
+    <div><dt title="Maalit miinus maaliodottama">xGE</dt><dd class="stat-pm{% if xge > 0 %} positive{% elif xge < 0 %} negative{% endif %}">{{ '%+.2f' % xge }}</dd></div>
+    <div><dt title="Laukausprosentti kohti maalia">LKM%</dt><dd>{{ '%.1f' % (p.shotsOnGoalPct | default(0)) }}%</dd></div>
   </dl>
 </details>
 {% endmacro %}
@@ -83,11 +87,11 @@
     <span class="summary-stats">
       {{ match_pill(p, show_match_stats) }}
       <span class="key-stat" title="Torjunta-%">{{ '%.1f' % (p.savePercentage or 0) }}%</span>
+      <span class="summary-gaa" title="Päästetyt maalit/ottelu">{{ '%.2f' % (p.goalsAgainstAvg or 0) }}</span>
     </span>
   </summary>
   <dl class="player-body">
     <div><dt>Ottelut</dt><dd>{{ p.games | default(0) }}</dd></div>
-    <div><dt>GAA</dt><dd title="Päästetyt maalit/ottelu">{{ '%.2f' % (p.goalsAgainstAvg or 0) }}</dd></div>
     <div><dt>V-T-H</dt><dd title="Voitot-tasapelit-tappiot">{{ p.gkWins | default(0) }}-{{ p.gkTies | default(0) }}-{{ p.gkLosses | default(0) }}</dd></div>
     <div><dt>Nollat</dt><dd>{{ p.shutOut | default(0) }}</dd></div>
   </dl>
@@ -134,6 +138,9 @@
           <th scope="col" class="num" title="Plus-miinus">+/−</th>
           <th scope="col" class="num">Jäähyt</th>
           <th scope="col" class="num" title="Jääaika/ottelu">Jääaika</th>
+          <th scope="col" class="num" title="Maaliodottama">xG</th>
+          <th scope="col" class="num" title="Maalit miinus maaliodottama">xGE</th>
+          <th scope="col" class="num" title="Laukausprosentti kohti maalia">LKM%</th>
           {% if show_match_stats %}
           <th scope="col" class="num" title="Ottelun maalit">Ott. M</th>
           <th scope="col" class="num" title="Ottelun syötöt">Ott. S</th>
@@ -162,6 +169,10 @@
           <td class="num stat-pm{% if pm > 0 %} positive{% elif pm < 0 %} negative{% endif %}">{{ '%+d' % pm }}</td>
           <td class="num stat-pim">{{ p.penaltyMinutes | default(0) }}</td>
           <td class="num">{{ p.timeOnIceAvg }}</td>
+          <td class="num">{{ '%.2f' % (p.expectedGoals | default(0)) }}</td>
+          {% set xge = p.expectedGoalsDiff | default(0) %}
+          <td class="num stat-pm{% if xge > 0 %} positive{% elif xge < 0 %} negative{% endif %}">{{ '%+.2f' % xge }}</td>
+          <td class="num">{{ '%.1f' % (p.shotsOnGoalPct | default(0)) }}%</td>
           {% if show_match_stats %}
           <td class="num stat-goals">{% if p.hasMatchStats %}{{ p.matchGoals | default(0) }}{% else %}–{% endif %}</td>
           <td class="num">{% if p.hasMatchStats %}{{ p.matchAssists | default(0) }}{% else %}–{% endif %}</td>
@@ -343,8 +354,8 @@
 <details class="stats-legend">
   <summary><span class="chevron" aria-hidden="true"></span>Tilastoselite</summary>
   <div class="legend-body">
-    <p>Kenttäpelaajan tiivistelmä on maalit + syötöt = pisteet. Avattuna: ottelut, +/−, jäähyt, jääaika.</p>
-    <p>Maalivahdin tiivistelmä on torjunta-%. Avattuna: ottelut, GAA (päästetyt maalit/ottelu), V-T-H (voitot–tasapelit–tappiot), nollapelit.</p>
+    <p>Kenttäpelaajan tiivistelmä on ottelut ja maalit + syötöt = pisteet. Avattuna: jääaika, +/−, jäähyt, xG (maaliodottama), xGE (maalit − xG) ja LKM% (maalit / laukaukset kohti maalia).</p>
+    <p>Maalivahdin tiivistelmä on torjunta-% ja GAA (päästetyt maalit/ottelu). Avattuna: ottelut, V-T-H (voitot–tasapelit–tappiot), nollapelit.</p>
     <p>Edellisellä kierroksella pilleri näyttää ottelun maalit+syötöt ja +/−, jos se ei ole nolla.</p>
     <p>Taulukossa O = ottelut, M = maalit, S = syötöt, P = pisteet.</p>
     <p class="legend-awards"><span class="legend-helmet golden">&#x1F451; Kultakypärä</span> – ottelun paras pistemies</p>

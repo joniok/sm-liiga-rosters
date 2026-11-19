@@ -451,6 +451,28 @@ class RosterViewTests(unittest.TestCase):
         self.assertEqual(shown.get("gkTies"), stats[home_id]["gkTies"] - match[home_id]["gkTied"])
         self.assertEqual(shown.get("gkLosses"), stats[home_id]["gkLosses"] - match[home_id]["gkLost"])
 
+    def test_xg_xge_and_lkm_follow_liiga_definitions(self) -> None:
+        view = _view(self.played, self.stats)
+        row = next(
+            stats for stats in self.stats.values()
+            if not stats.get("goalkeeper")
+            and (stats.get("shotsIntoGoal") or 0) > 0
+            and (stats.get("expectedGoals") or 0) > 0
+            and _find(view, stats["playerId"])
+        )
+        shown = _find(view, row["playerId"])
+        self.assertAlmostEqual(shown["expectedGoals"], float(row["expectedGoals"]), places=4)
+        self.assertAlmostEqual(
+            shown["expectedGoalsDiff"],
+            row["goals"] - float(row["expectedGoals"]),
+            places=4,
+        )
+        self.assertAlmostEqual(
+            shown["shotsOnGoalPct"],
+            row["goals"] / row["shotsIntoGoal"] * 100,
+            places=4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
