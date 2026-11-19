@@ -176,12 +176,31 @@ async def get_season_stats(season: int, tournament: str = TOURNAMENT_REGULAR) ->
 # Per-player game log (for match-specific stats)
 # ---------------------------------------------------------------------------
 
+_log_inflight: dict[str, asyncio.Task] = {}
+
+
 async def get_player_game_log(player_id: int, season: int) -> dict:
-    """Fetch a player's per-game stats for the season (cached 1 h)."""
+    """Fetch a player's per-game stats for the season (cached 1 h).
+
+    Parallel callers for the same player share one request.
+    """
     cache_key = f"player-games-{player_id}-{season}"
-    return await _get_cached(
-        cache_key, f"/players/info/{player_id}/games/{season}", ttl=CACHE_TTL_LONG,
-    )
+    now = time.time()
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if now - ts < CACHE_TTL_LONG:
+            return data
+    task = _log_inflight.get(cache_key)
+    if task is None:
+        task = asyncio.create_task(_get_cached(
+            cache_key, f"/players/info/{player_id}/games/{season}", ttl=CACHE_TTL_LONG,
+        ))
+        _log_inflight[cache_key] = task
+        try:
+            return await task
+        finally:
+            _log_inflight.pop(cache_key, None)
+    return await task
 
 
 def subtract_match_from_season_column(game_detail: dict, stats_tournament: str) -> bool:
@@ -207,6 +226,132 @@ def _game_log_key_for_detail(game_detail: dict) -> str:
     if (game.get("serie") or "").upper() == "PLAYOFFS":
         return "playoffs"
     return "regular"
+
+
+def _log_key_for_tournament(stats_tournament: str) -> str:
+    if stats_tournament == TOURNAMENT_PLAYOFFS:
+        return "playoffs"
+    return "regular"
+
+
+def _skater_log_game_played(entry: dict) -> bool:
+    """A skater game counts once it has ice time or a scoring line.
+
+    An unpublished or not-yet-started outing is a zero row and stays out.
+    Goalie rows are not skater games.
+    """
+    if not isinstance(entry, dict) or entry.get("goalkeeper"):
+        return False
+    if _as_int(entry.get("timeOnIce")) > 0:
+        return True
+    return bool(
+        _as_int(entry.get("goals"))
+        or _as_int(entry.get("assists"))
+        or _as_int(entry.get("totalPoints"))
+    )
+
+
+def skater_counting_from_log(entries: list | None) -> dict | None:
+    """Sum played skater games from a player game log.
+
+    Returns counting stats in the same shape as the summed season row
+    (``points``, ``timeOnIceAvg``, ``shotsIntoGoal``). ``None`` when the
+    log has no played skater games.
+    """
+    if not entries:
+        return None
+    goals = assists = points = pim = plus_minus = toi = shots = 0
+    counted = 0
+    for entry in entries:
+        if not _skater_log_game_played(entry):
+            continue
+        counted += 1
+        goals += _as_int(entry.get("goals"))
+        assists += _as_int(entry.get("assists"))
+        points += _as_int(entry.get("totalPoints"))
+        pim += _as_int(entry.get("penaltyMinutes"))
+        plus_minus += _as_int(entry.get("plusMinus"))
+        toi += _as_int(entry.get("timeOnIce"))
+        shots += _as_int(entry.get("shotsIntoGoal"))
+    if counted == 0:
+        return None
+    return {
+        "games": counted,
+        "goals": goals,
+        "assists": assists,
+        "points": points,
+        "penaltyMinutes": pim,
+        "plusMinus": plus_minus,
+        "timeOnIce": toi,
+        "timeOnIceAvg": toi / counted,
+        "shotsIntoGoal": shots,
+    }
+
+
+def _log_counting_is_fresher(log_totals: dict, summed: dict) -> bool:
+    """True when the game log includes games the summed feed has not rolled up.
+
+    A shorter log is ignored so a partial response cannot wipe a fuller total.
+    """
+    if log_totals["games"] < _as_int(summed.get("games")):
+        return False
+    if log_totals["games"] > _as_int(summed.get("games")):
+        return True
+    for key in ("goals", "assists", "points"):
+        if log_totals[key] > _as_int(summed.get(key)):
+            return True
+    return False
+
+
+async def merge_fresher_skater_logs(
+    game_detail: dict,
+    season: int,
+    stats_map: dict,
+    stats_tournament: str = TOURNAMENT_REGULAR,
+) -> None:
+    """Fill stale summed skater totals from the game log.
+
+    The summed stats feed can lag a finished game. The player log already
+    has that outing, which is why a card can show 0+0 the day after 0+1.
+    Goalies are left on the summed row (save percentage and GAA are not
+    rebuilt from the log).
+    """
+    log_key = _log_key_for_tournament(stats_tournament)
+    player_ids: list[int] = []
+    seen: set[int] = set()
+    for key in ("homeTeamPlayers", "awayTeamPlayers"):
+        for player in game_detail.get(key) or []:
+            pid = player.get("id")
+            if not pid or pid in seen:
+                continue
+            if _position_group(player.get("role"), player.get("roleCode")) == "G":
+                continue
+            seen.add(pid)
+            player_ids.append(pid)
+    if not player_ids:
+        return
+
+    sem = asyncio.Semaphore(25)
+
+    async def _one(pid: int) -> tuple[int, dict | None]:
+        async with sem:
+            try:
+                data = await get_player_game_log(pid, season)
+            except Exception:
+                return pid, None
+            entries = data.get(log_key, []) if isinstance(data, dict) else []
+            return pid, skater_counting_from_log(entries)
+
+    results = await asyncio.gather(*[_one(pid) for pid in player_ids])
+    for pid, totals in results:
+        if not totals:
+            continue
+        current = stats_map.get(pid) or {}
+        if not _log_counting_is_fresher(totals, current):
+            continue
+        merged = dict(current)
+        merged.update(totals)
+        stats_map[pid] = merged
 
 
 async def is_runkosarja_schedule_active(game_day: date) -> bool:

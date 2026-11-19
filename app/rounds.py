@@ -80,6 +80,9 @@ async def _build_played_round(
         else:
             ms_map = match_res if isinstance(match_res, dict) else {}
         try:
+            await liiga_client.merge_fresher_skater_logs(
+                detail, season, stats_map, stats_tournament,
+            )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, ms_map, stats_tournament=stats_tournament,
             )
@@ -112,6 +115,9 @@ async def _build_upcoming_round(
             continue
         gid = (detail.get("game") or {}).get("id")
         try:
+            await liiga_client.merge_fresher_skater_logs(
+                detail, season, stats_map, stats_tournament,
+            )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, stats_tournament=stats_tournament,
             )

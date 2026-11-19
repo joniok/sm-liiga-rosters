@@ -680,6 +680,87 @@ class RosterViewTests(unittest.TestCase):
         self.assertEqual(result[2]["timeOnIce"], 0)
         self.assertTrue(result[3]["played"])
 
+    def test_stale_summed_stats_take_the_assist_from_the_game_log(self) -> None:
+        """Summed season totals can lag a finished game that the log already has."""
+        player_id = 40175796
+        detail = {
+            "game": {
+                "id": 2701463,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0},
+                "awayTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0},
+            },
+            "homeTeamPlayers": [
+                {
+                    "id": player_id,
+                    "firstName": "Max",
+                    "lastName": "Laatikainen",
+                    "role": "DEFENSEMAN",
+                    "roleCode": "OP",
+                    "line": 2,
+                    "jersey": 4,
+                }
+            ],
+            "awayTeamPlayers": [],
+        }
+        stale = {
+            player_id: {
+                "playerId": player_id,
+                "games": 2,
+                "goals": 0,
+                "assists": 0,
+                "points": 0,
+                "plusMinus": -2,
+                "penaltyMinutes": 0,
+                "timeOnIce": 883,
+                "timeOnIceAvg": 441.5,
+                "shotsIntoGoal": 3,
+                "expectedGoals": 0.11,
+            }
+        }
+        log = {"regular": [
+            {"gameId": 2701341, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": -2, "timeOnIce": 174, "shotsIntoGoal": 0},
+            {"gameId": 2701454, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 709, "shotsIntoGoal": 3},
+            {"gameId": 2701456, "goals": 0, "assists": 1, "totalPoints": 1,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 945, "shotsIntoGoal": 3},
+            {"gameId": 2701463, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 0, "shotsIntoGoal": None},
+        ]}
+
+        async def fake_log(pid: int, _season: int) -> dict:
+            self.assertEqual(pid, player_id)
+            return log
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, stale, liiga_client.TOURNAMENT_REGULAR,
+                )
+            return liiga_client.build_roster_view(
+                detail, stale, 2027, stats_tournament=liiga_client.TOURNAMENT_REGULAR,
+            )
+
+        shown = _find(asyncio.run(run()), player_id)
+        self.assertEqual(shown.get("games"), 3)
+        self.assertEqual(shown.get("goals"), 0)
+        self.assertEqual(shown.get("assists"), 1)
+        self.assertEqual(shown.get("points"), 1)
+        self.assertEqual(shown.get("plusMinus"), -1)
+        self.assertEqual(stale[player_id]["expectedGoals"], 0.11)
+
+    def test_shorter_game_log_does_not_replace_summed_stats(self) -> None:
+        totals = liiga_client.skater_counting_from_log([
+            {"goals": 0, "assists": 1, "totalPoints": 1, "timeOnIce": 400,
+             "penaltyMinutes": 0, "plusMinus": 1, "shotsIntoGoal": 1},
+        ])
+        self.assertFalse(liiga_client._log_counting_is_fresher(
+            totals, {"games": 4, "goals": 2, "assists": 3, "points": 5},
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

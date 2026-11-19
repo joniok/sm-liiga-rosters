@@ -56,7 +56,7 @@
     </span>
     <span class="summary-stats">
       {{ match_pill(p, show_match_stats) }}
-      <span class="summary-games" title="Ottelut">{{ p.games | default(0) }}<span class="stat-label">O</span></span>
+      <span class="summary-games" title="Ottelut">{{ p.games | default(0) }}<span class="stat-label">,</span></span>
       <span class="stat-scoring" title="Maalit + syötöt = pisteet">
         <span class="stat-goals">{{ p.goals | default(0) }}</span><span class="stat-sep">+</span><span class="stat-assists">{{ p.assists | default(0) }}</span><span class="stat-sep">=</span><span class="stat-points">{{ p.points | default(0) }}</span>
       </span>
@@ -363,7 +363,7 @@
 <details class="stats-legend">
   <summary><span class="chevron" aria-hidden="true"></span>Tilastoselite</summary>
   <div class="legend-body">
-    <p>Kenttäpelaajan tiivistelmä on ottelut ja maalit + syötöt = pisteet. Avattuna: jääaika, +/−, jäähyt, xG (kauden maaliodottama, sisältää tämän ottelun), xGE (näytetyt maalit − xG) ja LKM% (näytetyt maalit / laukaukset kohti maalia).</p>
+    <p>Kenttäpelaajan tiivistelmä: ottelut, maalit + syötöt = pisteet. Pilkku erottaa ottelut pistemäärästä. Avattuna: jääaika, +/−, jäähyt, xG (kauden maaliodottama, sisältää tämän ottelun), xGE (näytetyt maalit − xG) ja LKM% (näytetyt maalit / laukaukset kohti maalia).</p>
     <p>Maalivahdin tiivistelmä on torjunta-% ja GAA (päästetyt maalit/ottelu). Avattuna: ottelut, V-T-H (voitot–tasapelit–tappiot), nollapelit.</p>
     <p>Edellisellä kierroksella pilleri näyttää ottelun maalit+syötöt ja +/−, jos se ei ole nolla.</p>
     <p>Taulukossa O = ottelut, M = maalit, S = syötöt, P = pisteet.</p>
