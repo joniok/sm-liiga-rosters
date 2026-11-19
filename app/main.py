@@ -23,7 +23,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, stats: str | None = None):
     """Main page: show previous round results and next round rosters."""
-    today = datetime.now(liiga_client.FI_TZ).date()
     now_fi = datetime.now(liiga_client.FI_TZ)
+    today = now_fi.date()
     ctx = await build_context(today, now_fi, stats_mode=stats)
     return templates.TemplateResponse("index.html", {"request": request, **ctx})

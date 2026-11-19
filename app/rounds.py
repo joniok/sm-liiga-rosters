@@ -1,9 +1,12 @@
 """Shared previous/next round selection for the web app and static build."""
 
 import asyncio
+import logging
 from datetime import date, datetime
 
 from . import liiga_client
+
+log = logging.getLogger(__name__)
 
 FI_WEEKDAYS = [
     "Maanantai", "Tiistai", "Keskiviikko", "Torstai",
@@ -55,6 +58,7 @@ async def _build_played_round(
     valid_details = []
     for detail in game_details:
         if isinstance(detail, Exception):
+            log.error("game detail failed: %s", detail)
             continue
         game_obj = detail.get("game", {})
         gid = game_obj.get("id")
@@ -69,14 +73,19 @@ async def _build_played_round(
 
     roster_views: list[dict] = []
     for detail, match_res in zip(valid_details, match_results):
-        ms_map = match_res if isinstance(match_res, dict) else {}
+        gid = (detail.get("game") or {}).get("id")
+        if isinstance(match_res, Exception):
+            log.error("match stats failed for game %s: %s", gid, match_res)
+            ms_map: dict = {}
+        else:
+            ms_map = match_res if isinstance(match_res, dict) else {}
         try:
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, ms_map, stats_tournament=stats_tournament,
             )
             roster_views.append(view)
         except Exception:
-            continue
+            log.exception("roster view failed for game %s", gid)
     return roster_views
 
 
@@ -99,14 +108,16 @@ async def _build_upcoming_round(
     roster_views: list[dict] = []
     for detail in game_details:
         if isinstance(detail, Exception):
+            log.error("game detail failed: %s", detail)
             continue
+        gid = (detail.get("game") or {}).get("id")
         try:
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, stats_tournament=stats_tournament,
             )
             roster_views.append(view)
         except Exception:
-            continue
+            log.exception("roster view failed for game %s", gid)
     return roster_views
 
 
@@ -136,13 +147,22 @@ def _page_context(
     }
 
 
-async def build_context(today: date, now_fi: datetime, stats_mode: str | None = None) -> dict:
+async def build_context(
+    today: date,
+    now_fi: datetime,
+    stats_mode: str | None = None,
+    *,
+    static: bool = False,
+) -> dict:
     """Load previous and next round views for ``today``.
 
     ``stats_mode`` is the raw ``?stats=`` value. During the playoffs it
     selects runkosarja only when it equals that tournament; otherwise
     playoff stats are used. Outside the playoffs the season is always
     runkosarja and the stats toggle stays off.
+
+    ``static`` is the GitHub Pages build. That page cannot honor ``?stats=``,
+    so the toggle stays off there even during the playoffs.
     """
     playoffs_branch = await liiga_client.use_playoffs_for_games(today)
     series_task: asyncio.Task | None = None
@@ -152,7 +172,7 @@ async def build_context(today: date, now_fi: datetime, stats_mode: str | None = 
     games_tournament = (
         liiga_client.TOURNAMENT_PLAYOFFS if playoffs_branch else liiga_client.TOURNAMENT_REGULAR
     )
-    show_stats_toggle = playoffs_branch
+    show_stats_toggle = playoffs_branch and not static
     stats_tournament = (
         _stats_query_mode(stats_mode)
         if playoffs_branch

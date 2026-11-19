@@ -24,12 +24,12 @@ APP_DIR = Path("app")
 
 async def build() -> None:
     """Fetch data from Liiga API and generate static HTML."""
-    today = datetime.now(liiga_client.FI_TZ).date()
     now_fi = datetime.now(liiga_client.FI_TZ)
+    today = now_fi.date()
 
     print(f"Building for {fi_date(today)} …")
 
-    ctx = await build_context(today, now_fi)
+    ctx = await build_context(today, now_fi, static=True)
 
     # ── Render template ──
     env = Environment(loader=FileSystemLoader(str(APP_DIR / "templates")))

@@ -30,7 +30,7 @@
 }
 
 html {
-  font-size: 16px;
+  font-size: 100%;
   color-scheme: dark;
   scroll-padding-top: 0.25rem;
 }

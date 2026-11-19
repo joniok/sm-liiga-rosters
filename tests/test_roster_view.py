@@ -6,11 +6,13 @@ a game-log entry, so nothing here touches the network.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -326,6 +328,9 @@ class RosterViewTests(unittest.TestCase):
         shown = _find(view, player["id"])
         self.assertGreater(shown.get("matchGoals") or 0, 0)
         self.assertEqual(shown.get("games"), row["games"] - 1)
+        self.assertEqual(shown.get("goals"), max(0, row["goals"] - 1))
+        self.assertEqual(shown.get("assists"), row["assists"])
+        self.assertEqual(shown.get("points"), max(0, (row.get("points") or 0) - 1))
 
     def test_armalis_games_follow_played_games_and_game_log(self) -> None:
         arm_row = self.stats[ARMALIS_ID]
@@ -339,13 +344,14 @@ class RosterViewTests(unittest.TestCase):
             if player.get("role") == "GOALIE" and player.get("line") == 2
         )
         backup_row = self.stats[backup["id"]]
-        # Armalis has a game-log stand-in; the backup does not.
-        match = {ARMALIS_ID: _blank_match(played=True)}
-        has_log = bool(match[ARMALIS_ID].get("played"))
-        expected = arm_row["playedGames"] - (1 if has_log else 0)
+        # The live log has a zero-minute row for the dressed backup.
+        match = {
+            ARMALIS_ID: _blank_match(played=True, timeOnIce=3480),
+            backup["id"]: _blank_match(played=True, timeOnIce=0),
+        }
         view = _view(self.played, self.stats, match)
         shown = _find(view, ARMALIS_ID)
-        self.assertEqual(shown.get("games"), expected)
+        self.assertEqual(shown.get("games"), arm_row["playedGames"] - 1)
         backup_shown = _find(view, backup["id"])
         self.assertEqual(backup_shown.get("games"), backup_row["playedGames"])
 
@@ -453,14 +459,18 @@ class RosterViewTests(unittest.TestCase):
 
     def test_xg_xge_and_lkm_follow_liiga_definitions(self) -> None:
         view = _view(self.played, self.stats)
-        row = next(
-            stats for stats in self.stats.values()
-            if not stats.get("goalkeeper")
-            and (stats.get("shotsIntoGoal") or 0) > 0
-            and (stats.get("expectedGoals") or 0) > 0
-            and _find(view, stats["playerId"])
-        )
-        shown = _find(view, row["playerId"])
+        shown = None
+        row = None
+        for side in SIDES:
+            for player in _collect(view[side])["lines_f"]:
+                stats = self.stats.get(player["id"]) or {}
+                if (stats.get("shotsIntoGoal") or 0) > 0 and (stats.get("expectedGoals") or 0) > 0:
+                    shown = player
+                    row = stats
+                    break
+            if shown:
+                break
+        self.assertIsNotNone(shown, "no line forward with xG and shots on goal")
         self.assertAlmostEqual(shown["expectedGoals"], float(row["expectedGoals"]), places=4)
         self.assertAlmostEqual(
             shown["expectedGoalsDiff"],
@@ -472,6 +482,102 @@ class RosterViewTests(unittest.TestCase):
             row["goals"] / row["shotsIntoGoal"] * 100,
             places=4,
         )
+        match = {row["playerId"]: _blank_match(goals=1, assists=0, points=1, played=True)}
+        adjusted = _find(_view(self.played, self.stats, match), row["playerId"])
+        shown_goals = max(0, row["goals"] - 1)
+        self.assertAlmostEqual(
+            adjusted["expectedGoalsDiff"],
+            shown_goals - float(row["expectedGoals"]),
+            places=4,
+        )
+        self.assertAlmostEqual(
+            adjusted["shotsOnGoalPct"],
+            shown_goals / row["shotsIntoGoal"] * 100,
+            places=4,
+        )
+
+    def test_live_game_does_not_subtract_season_totals(self) -> None:
+        detail = copy.deepcopy(self.played)
+        detail["game"]["ended"] = False
+        player = next(
+            p for side in SIDES for p in _raw_players(detail, side)
+            if p.get("role") in LINE_FORWARD_ROLES and (self.stats.get(p["id"]) or {}).get("goals")
+        )
+        row = self.stats[player["id"]]
+        match = {player["id"]: _blank_match(goals=1, points=1, played=True)}
+        shown = _find(_view(detail, self.stats, match), player["id"])
+        self.assertEqual(shown.get("goals"), row["goals"])
+        self.assertEqual(shown.get("games"), row["games"])
+
+    def test_games_do_not_go_below_zero(self) -> None:
+        player = _raw_players(self.played, "homeTeam")[0]
+        stats = copy.deepcopy(self.stats)
+        stats[player["id"]] = {
+            "playerId": player["id"],
+            "games": 0,
+            "goals": 0,
+            "assists": 0,
+            "points": 0,
+            "penaltyMinutes": 0,
+            "plusMinus": None,
+            "isU20": None,
+        }
+        match = {player["id"]: _blank_match(goals=1, played=True)}
+        shown = _find(_view(self.played, stats, match), player["id"])
+        self.assertEqual(shown.get("games"), 0)
+        self.assertEqual(shown.get("goals"), 0)
+        self.assertEqual(shown.get("plusMinus"), 0)
+
+    def test_null_is_u20_falls_back_to_birth_year(self) -> None:
+        young = next(
+            p for side in SIDES for p in _raw_players(self.played, side)
+            if (p.get("dateOfBirth") or "")[:4].isdigit()
+            and int(p["dateOfBirth"][:4]) >= YOUNG_BIRTH_YEAR
+            and p["id"] in self.stats
+        )
+        stats = copy.deepcopy(self.stats)
+        stats[young["id"]]["isU20"] = None
+        shown = _find(_view(self.played, stats), young["id"])
+        self.assertTrue(shown.get("isU20"))
+
+    def test_zero_ice_time_goalie_is_not_marked_played(self) -> None:
+        detail = {
+            "game": {"id": 42, "serie": "RUNKOSARJA", "ended": True},
+            "homeTeamPlayers": [
+                {"id": 1, "role": "GOALIE", "roleCode": "MV"},
+                {"id": 2, "role": "GOALIE", "roleCode": "MV"},
+                {"id": 3, "role": "CENTER", "roleCode": "KH"},
+            ],
+            "awayTeamPlayers": [],
+        }
+
+        async def fake_log(pid: int, _season: int) -> dict:
+            ice = {1: 3600, 2: 0, 3: 800}[pid]
+            return {"regular": [{
+                "gameId": 42,
+                "timeOnIce": ice,
+                "goals": 0,
+                "assists": 0,
+                "totalPoints": 0,
+                "penaltyMinutes": 0,
+                "plusMinus": 0,
+                "won": 1 if pid == 1 else 0,
+                "tied": 0,
+                "lost": 0,
+                "shutOut": 1 if pid == 1 else 0,
+                "goalkeeper": pid != 3,
+            }]}
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                return await liiga_client.get_match_stats_for_game(detail, 2027, 42)
+
+        result = asyncio.run(run())
+        self.assertTrue(result[1]["played"])
+        self.assertEqual(result[1]["shutOut"], 1)
+        self.assertFalse(result[2]["played"])
+        self.assertEqual(result[2]["timeOnIce"], 0)
+        self.assertTrue(result[3]["played"])
 
 
 if __name__ == "__main__":

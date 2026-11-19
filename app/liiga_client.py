@@ -185,8 +185,15 @@ async def get_player_game_log(player_id: int, season: int) -> dict:
 
 
 def subtract_match_from_season_column(game_detail: dict, stats_tournament: str) -> bool:
-    """Whether season columns should be (season total − this game)."""
-    is_po = (game_detail.get("game", {}).get("serie") or "").upper() == "PLAYOFFS"
+    """Whether season columns should be (season total − this game).
+
+    A game that has started but not ended is left alone: the game log can
+    already have a row while the season totals do not include it yet.
+    """
+    game = game_detail.get("game", {}) if isinstance(game_detail, dict) else {}
+    if not game.get("ended"):
+        return False
+    is_po = (game.get("serie") or "").upper() == "PLAYOFFS"
     if stats_tournament == TOURNAMENT_PLAYOFFS:
         return is_po
     if stats_tournament == TOURNAMENT_REGULAR:
@@ -457,10 +464,11 @@ async def get_match_stats_for_game(
 
     Returns ``{player_id: row}`` for players who have a game-log entry for
     ``game_id``. Each row keeps ``goals``, ``assists``, ``points``,
-    ``penaltyMinutes`` and ``plusMinus``, and sets ``played`` when that entry
-    exists (a goalie's entry counts as played). Goalie rows also include
-    ``gkWon``, ``gkTied`` and ``gkLost`` (ints from the log's ``won`` /
-    ``tied`` / ``lost``). Callers that ignore the extra keys keep working.
+    ``penaltyMinutes``, ``plusMinus`` and ``timeOnIce``. ``played`` is true
+    for a skater with an entry, and for a goalie only when ``timeOnIce`` is
+    above zero (a dressed backup gets a zero-minute row). Goalie rows also
+    include ``gkWon``, ``gkTied``, ``gkLost`` and ``shutOut``. Callers that
+    ignore the extra keys keep working.
     """
     # Collect all player IDs from the game detail
     player_ids: list[int] = []
@@ -489,19 +497,23 @@ async def get_match_stats_for_game(
                     entries = data.get("regular", []) if isinstance(data, dict) else []
                 for entry in entries:
                     if entry.get("gameId") == game_id:
+                        ice_time = _as_int(entry.get("timeOnIce"))
+                        is_goalie = pid in goalie_ids or bool(entry.get("goalkeeper"))
                         row = {
                             "goals": entry.get("goals", 0) or 0,
                             "assists": entry.get("assists", 0) or 0,
                             "points": entry.get("totalPoints", 0) or 0,
                             "penaltyMinutes": entry.get("penaltyMinutes", 0) or 0,
                             "plusMinus": entry.get("plusMinus", 0) or 0,
-                            # Presence of the log entry is what subtraction uses.
-                            "played": True,
+                            "timeOnIce": ice_time,
+                            # A dressed backup has a log row with zero ice time.
+                            "played": ice_time > 0 if is_goalie else True,
                         }
-                        if pid in goalie_ids or entry.get("goalkeeper"):
+                        if is_goalie:
                             row["gkWon"] = _as_int(entry.get("won"))
                             row["gkTied"] = _as_int(entry.get("tied"))
                             row["gkLost"] = _as_int(entry.get("lost"))
+                            row["shutOut"] = _as_int(entry.get("shutOut"))
                         return pid, row
                 return pid, None
             except Exception:
@@ -604,6 +616,23 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _at_least_zero(total: Any, subtracted: Any = 0) -> int:
+    """Season count minus this game, never below zero."""
+    return max(0, _as_int(total) - _as_int(subtracted))
+
+
+def _goalie_actually_played(ms: dict) -> bool:
+    """A goalie played only with ice time. A zero-minute log row is a backup.
+
+    Maps built before ``timeOnIce`` was stored still use ``played``.
+    """
+    if not ms:
+        return False
+    if "timeOnIce" in ms:
+        return _as_int(ms.get("timeOnIce")) > 0
+    return bool(ms.get("played", True))
 
 
 def _published_line(line: Any) -> int | None:
@@ -809,11 +838,11 @@ def build_roster_view(
 
             # Look up match-specific stats
             ms = match_stats_map.get(player_id, {})
-            m_goals = ms.get("goals", 0)
-            m_assists = ms.get("assists", 0)
-            m_points = ms.get("points", 0)
-            m_pim = ms.get("penaltyMinutes", 0)
-            m_pm = ms.get("plusMinus", 0)
+            m_goals = _as_int(ms.get("goals"))
+            m_assists = _as_int(ms.get("assists"))
+            m_points = _as_int(ms.get("points"))
+            m_pim = _as_int(ms.get("penaltyMinutes"))
+            m_pm = _as_int(ms.get("plusMinus"))
 
             sub_g = m_goals if do_subtract else 0
             sub_a = m_assists if do_subtract else 0
@@ -821,37 +850,36 @@ def build_roster_view(
             sub_pim = m_pim if do_subtract else 0
             sub_pm = m_pm if do_subtract else 0
 
-            # Raw season totals
-            s_goals = stats.get("goals", 0)
-            s_assists = stats.get("assists", 0)
-            s_points = stats.get("points", 0)
-            s_pim = stats.get("penaltyMinutes", 0)
-            s_pm = stats.get("plusMinus", 0)
-
             # A row in match_stats_map is a game-log entry. ``played`` defaults
             # to true so older maps that only carry scoring keys still subtract.
-            played_this_game = bool(ms) and bool(ms.get("played", True))
+            # Goalies need ice time: a dressed backup's row is all zeros.
+            if pos == "G":
+                played_this_game = _goalie_actually_played(ms)
+            else:
+                played_this_game = bool(ms) and bool(ms.get("played", True))
             game_delta = 1 if do_subtract and played_this_game else 0
             if pos == "G":
                 # UI shows games actually played, not games dressed.
-                season_games = _as_int(stats.get("playedGames")) - game_delta
+                season_games = _at_least_zero(stats.get("playedGames"), game_delta)
+                gk_wins = _at_least_zero(stats.get("gkWins"), ms.get("gkWon") if game_delta else 0)
+                gk_losses = _at_least_zero(stats.get("gkLosses"), ms.get("gkLost") if game_delta else 0)
+                gk_ties = _at_least_zero(stats.get("gkTies"), ms.get("gkTied") if game_delta else 0)
+                shutouts = _at_least_zero(stats.get("shutOut"), ms.get("shutOut") if game_delta else 0)
+            else:
+                season_games = _at_least_zero(stats.get("games"), game_delta)
                 gk_wins = _as_int(stats.get("gkWins"))
                 gk_losses = _as_int(stats.get("gkLosses"))
                 gk_ties = _as_int(stats.get("gkTies"))
-                if game_delta:
-                    gk_wins -= _as_int(ms.get("gkWon"))
-                    gk_losses -= _as_int(ms.get("gkLost"))
-                    gk_ties -= _as_int(ms.get("gkTied"))
-            else:
-                season_games = _as_int(stats.get("games")) - game_delta
-                gk_wins = stats.get("gkWins", 0)
-                gk_losses = stats.get("gkLosses", 0)
-                gk_ties = stats.get("gkTies", 0)
+                shutouts = _as_int(stats.get("shutOut"))
 
-            if isinstance(stats, dict) and "isU20" in stats:
-                u20_flag = bool(stats.get("isU20"))
-            else:
+            shown_goals = _at_least_zero(stats.get("goals"), sub_g)
+            raw_u20 = stats.get("isU20") if isinstance(stats, dict) else None
+            if raw_u20 is None:
                 u20_flag = is_u20(p.get("dateOfBirth"), season)
+            else:
+                u20_flag = bool(raw_u20)
+            expected_goals = _expected_goals(stats)
+            shots_on_goal = _as_int(stats.get("shotsIntoGoal"))
 
             player_data = {
                 "id": player_id,
@@ -884,25 +912,24 @@ def build_roster_view(
                 "isStarter": False,
                 # Adjusted season stats (season total minus this game)
                 "games": season_games,
-                "goals": s_goals - sub_g,
-                "assists": s_assists - sub_a,
-                "points": s_points - sub_pt,
-                "plusMinus": s_pm - sub_pm,
-                "penaltyMinutes": s_pim - sub_pim,
-                "powerplayGoals": stats.get("powerplayGoals", 0),
-                "shots": stats.get("shots", 0),
-                "shotPercentage": stats.get("shotPercentage", 0),
-                "expectedGoals": _expected_goals(stats),
-                "expectedGoalsDiff": _expected_goals_diff(stats),
-                "shotsOnGoalPct": _shots_on_goal_pct(stats),
+                "goals": shown_goals,
+                "assists": _at_least_zero(stats.get("assists"), sub_a),
+                "points": _at_least_zero(stats.get("points"), sub_pt),
+                "plusMinus": _as_int(stats.get("plusMinus")) - sub_pm,
+                "penaltyMinutes": _at_least_zero(stats.get("penaltyMinutes"), sub_pim),
+                # xG stays the season total (this game is still in it).
+                # xGE and LKM% use the goals shown on the card.
+                "expectedGoals": expected_goals,
+                "expectedGoalsDiff": shown_goals - expected_goals,
+                "shotsOnGoalPct": (shown_goals / shots_on_goal * 100) if shots_on_goal else 0.0,
                 "timeOnIceAvg": _format_toi(stats.get("timeOnIceAvg", 0)),
-                # Averages stay season-level. Goalie W-T-L are adjusted above.
+                # Averages stay season-level. Goalie W-T-L and shutouts are adjusted above.
                 "savePercentage": stats.get("savePercentage", 0),
                 "goalsAgainstAvg": stats.get("goalsAgainstAvg", 0),
                 "gkWins": gk_wins,
                 "gkLosses": gk_losses,
                 "gkTies": gk_ties,
-                "shutOut": stats.get("shutOut", 0),
+                "shutOut": shutouts,
             }
 
             line_num = _published_line(line)
@@ -1030,19 +1057,6 @@ def _expected_goals(stats: dict) -> float:
         return float(stats.get("expectedGoals") or 0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _expected_goals_diff(stats: dict) -> float:
-    """xGE: season goals minus xG, matching Liiga.fi."""
-    return _as_int(stats.get("goals")) - _expected_goals(stats)
-
-
-def _shots_on_goal_pct(stats: dict) -> float:
-    """LKM%: goals divided by shots on goal (shotsIntoGoal)."""
-    shots_on_goal = _as_int(stats.get("shotsIntoGoal"))
-    if shots_on_goal <= 0:
-        return 0.0
-    return _as_int(stats.get("goals")) / shots_on_goal * 100
 
 
 def _format_toi(seconds: float) -> str:
