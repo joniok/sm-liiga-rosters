@@ -177,23 +177,53 @@ async def get_season_stats(season: int, tournament: str = TOURNAMENT_REGULAR) ->
 # ---------------------------------------------------------------------------
 
 _log_inflight: dict[str, asyncio.Task] = {}
+# True when that cache entry was fetched while a game on the page had not ended.
+_log_fetched_live: dict[str, bool] = {}
+
+# A log fetched while a game is on carries that game's partial numbers. Such a
+# fetch is only reused for this long, so the final row replaces it quickly.
+LIVE_LOG_TTL = 60
 
 
-async def get_player_game_log(player_id: int, season: int) -> dict:
+def _player_log_is_fresh(cache_key: str, now: float, live_read: bool) -> bool:
+    """Whether a cached player log is safe for this read.
+
+    The timestamp is the real fetch time. A live read, and a normal read of a
+    copy taken during a live game, only trust the last ``LIVE_LOG_TTL`` seconds.
+    A normal copy stays for the full hour, including for a live read that is
+    still inside that short window.
+    """
+    ts, _data = _cache[cache_key]
+    age = now - ts
+    if live_read or _log_fetched_live.get(cache_key, False):
+        return age < LIVE_LOG_TTL
+    return age < CACHE_TTL_LONG
+
+
+async def _fetch_player_log(cache_key: str, path: str, live: bool) -> dict:
+    data = await _get(path)
+    _cache[cache_key] = (time.time(), data)
+    _log_fetched_live[cache_key] = live
+    return data
+
+
+async def get_player_game_log(player_id: int, season: int, live: bool = False) -> dict:
     """Fetch a player's per-game stats for the season (cached 1 h).
 
-    Parallel callers for the same player share one request.
+    ``live`` is set when a game on the page has not ended. Such a log is
+    reused for only ``LIVE_LOG_TTL`` seconds, and an older cached copy is not
+    reused for it, so a partial live row cannot outlive the game. A second
+    live read inside that window reuses the same fetch. Parallel callers for
+    the same player share one request.
     """
     cache_key = f"player-games-{player_id}-{season}"
     now = time.time()
-    if cache_key in _cache:
-        ts, data = _cache[cache_key]
-        if now - ts < CACHE_TTL_LONG:
-            return data
+    if cache_key in _cache and _player_log_is_fresh(cache_key, now, live):
+        return _cache[cache_key][1]
     task = _log_inflight.get(cache_key)
     if task is None:
-        task = asyncio.create_task(_get_cached(
-            cache_key, f"/players/info/{player_id}/games/{season}", ttl=CACHE_TTL_LONG,
+        task = asyncio.create_task(_fetch_player_log(
+            cache_key, f"/players/info/{player_id}/games/{season}", live,
         ))
         _log_inflight[cache_key] = task
         try:
@@ -234,36 +264,53 @@ def _log_key_for_tournament(stats_tournament: str) -> str:
     return "regular"
 
 
-def _skater_log_game_played(entry: dict) -> bool:
-    """A skater game counts once it has ice time or a scoring line.
+def _skater_log_game_counted(entry: dict, now: datetime) -> bool:
+    """A skater log row is a season game once its game has been played.
 
-    An unpublished or not-yet-started outing is a zero row and stays out.
-    Goalie rows are not skater games.
+    The summed ``games`` counts every dressed game, including one where the
+    skater got no ice time (checked against the feed: counting every past row
+    matches it, ice-time-only does not). So a zero-ice row in a past game
+    counts here too, which also matches the match-row subtraction. A row dated
+    in the future is a scheduled game, and goalie rows are not skater games.
+    A row with no usable date counts only with ice time or points.
     """
     if not isinstance(entry, dict) or entry.get("goalkeeper"):
         return False
-    if _as_int(entry.get("timeOnIce")) > 0:
-        return True
+    start = game_start_helsinki(entry.get("date"))
+    if start is not None:
+        return start <= now
     return bool(
-        _as_int(entry.get("goals"))
+        _as_int(entry.get("timeOnIce")) > 0
+        or _as_int(entry.get("goals"))
         or _as_int(entry.get("assists"))
         or _as_int(entry.get("totalPoints"))
     )
 
 
-def skater_counting_from_log(entries: list | None) -> dict | None:
+def skater_counting_from_log(
+    entries: list | None,
+    skip_game_ids: set[int] | None = None,
+    now: datetime | None = None,
+) -> dict | None:
     """Sum played skater games from a player game log.
 
     Returns counting stats in the same shape as the summed season row
-    (``points``, ``timeOnIceAvg``, ``shotsIntoGoal``). ``None`` when the
-    log has no played skater games.
+    (``points``, ``timeOnIceAvg``, ``shotsIntoGoal``). ``timeOnIceAvg`` is
+    per counted game, as in the summed feed. ``None`` when the log has no
+    counted skater games. ``skip_game_ids`` drops outings that have started
+    but not ended: those stay on the match pill, and the season column is not
+    reduced until the game is final.
     """
     if not entries:
         return None
+    skip = skip_game_ids or set()
+    now = now or datetime.now(FI_TZ)
     goals = assists = points = pim = plus_minus = toi = shots = 0
     counted = 0
     for entry in entries:
-        if not _skater_log_game_played(entry):
+        if not isinstance(entry, dict) or entry.get("gameId") in skip:
+            continue
+        if not _skater_log_game_counted(entry, now):
             continue
         counted += 1
         goals += _as_int(entry.get("goals"))
@@ -308,6 +355,7 @@ async def merge_fresher_skater_logs(
     season: int,
     stats_map: dict,
     stats_tournament: str = TOURNAMENT_REGULAR,
+    skip_game_ids: set[int] | None = None,
 ) -> None:
     """Fill stale summed skater totals from the game log.
 
@@ -315,8 +363,18 @@ async def merge_fresher_skater_logs(
     has that outing, which is why a card can show 0+0 the day after 0+1.
     Goalies are left on the summed row (save percentage and GAA are not
     rebuilt from the log).
+
+    Games in ``skip_game_ids``, and this game itself when it has not ended,
+    are left out of the shared season totals. A live outing is already on
+    the match pill, and ``subtract_match_from_season_column`` does not
+    remove it until the game ends.
     """
     log_key = _log_key_for_tournament(stats_tournament)
+    game = game_detail.get("game") or {}
+    skip = set(skip_game_ids or ())
+    game_id = game.get("id")
+    if game_id is not None and not game.get("ended"):
+        skip.add(game_id)
     player_ids: list[int] = []
     seen: set[int] = set()
     for key in ("homeTeamPlayers", "awayTeamPlayers"):
@@ -332,15 +390,18 @@ async def merge_fresher_skater_logs(
         return
 
     sem = asyncio.Semaphore(25)
+    # Any unfinished game on the page puts a partial row in these logs.
+    live = bool(skip)
+    now = datetime.now(FI_TZ)
 
     async def _one(pid: int) -> tuple[int, dict | None]:
         async with sem:
             try:
-                data = await get_player_game_log(pid, season)
+                data = await get_player_game_log(pid, season, live=live)
             except Exception:
                 return pid, None
             entries = data.get(log_key, []) if isinstance(data, dict) else []
-            return pid, skater_counting_from_log(entries)
+            return pid, skater_counting_from_log(entries, skip, now)
 
     results = await asyncio.gather(*[_one(pid) for pid in player_ids])
     for pid, totals in results:
@@ -351,6 +412,9 @@ async def merge_fresher_skater_logs(
             continue
         merged = dict(current)
         merged.update(totals)
+        # Keep the games count the summed xG covers. The log has no xG, so the
+        # roster view compares shown games against this count to decide xGE.
+        merged["feedGames"] = _as_int(current.get("feedGames", current.get("games")))
         stats_map[pid] = merged
 
 
@@ -632,11 +696,13 @@ async def get_match_stats_for_game(
     sem = asyncio.Semaphore(25)
 
     log_key = _game_log_key_for_detail(game_detail)
+    # An unfinished game's row is partial; keep it out of the long cache.
+    live = not (game_detail.get("game") or {}).get("ended")
 
     async def _fetch_one(pid: int) -> tuple[int, dict | None]:
         async with sem:
             try:
-                data = await get_player_game_log(pid, season)
+                data = await get_player_game_log(pid, season, live=live)
                 entries = data.get(log_key, []) if isinstance(data, dict) else []
                 if not entries and log_key == "playoffs":
                     entries = data.get("regular", []) if isinstance(data, dict) else []
@@ -1026,6 +1092,11 @@ def build_roster_view(
             else:
                 u20_flag = bool(raw_u20)
             expected_goals = _expected_goals(stats)
+            # Shown games (after this game is removed) above the games the
+            # summed xG covers: the goals come from a longer log, so xGE is not exact.
+            xg_partial = pos != "G" and season_games > _as_int(
+                stats.get("feedGames", stats.get("games")),
+            )
             shots_on_goal = _as_int(stats.get("shotsIntoGoal"))
 
             player_data = {
@@ -1064,10 +1135,12 @@ def build_roster_view(
                 "points": _at_least_zero(stats.get("points"), sub_pt),
                 "plusMinus": _as_int(stats.get("plusMinus")) - sub_pm,
                 "penaltyMinutes": _at_least_zero(stats.get("penaltyMinutes"), sub_pim),
-                # xG stays the season total (this game is still in it).
-                # xGE and LKM% use the goals shown on the card.
+                # xG stays the season total from the summed feed (this game is
+                # still in it). xGE is shown goals minus that xG, unless the
+                # goals come from a longer game log than the xG covers.
                 "expectedGoals": expected_goals,
-                "expectedGoalsDiff": shown_goals - expected_goals,
+                "expectedGoalsPartial": xg_partial,
+                "expectedGoalsDiff": None if xg_partial else shown_goals - expected_goals,
                 "shotsOnGoalPct": (shown_goals / shots_on_goal * 100) if shots_on_goal else 0.0,
                 "timeOnIceAvg": _format_toi(stats.get("timeOnIceAvg", 0)),
                 # Averages stay season-level. Goalie W-T-L and shutouts are adjusted above.
