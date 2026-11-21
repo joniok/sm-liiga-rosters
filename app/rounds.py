@@ -38,41 +38,68 @@ def _stats_query_mode(raw: str | None) -> str:
     return liiga_client.TOURNAMENT_PLAYOFFS
 
 
-async def _build_played_round(
-    games: list[dict],
-    season: int,
-    stats_map: dict[int, dict],
-    stats_tournament: str,
-) -> list[dict]:
-    """Fetch details + match stats for played games and build roster views."""
+async def _load_game_details(games: list[dict], season: int) -> list[dict]:
+    """Fetch game details, dropping failures and rows without an id."""
     if not games:
         return []
-
-    detail_tasks = [
-        liiga_client.get_game_detail(season, g["id"])
-        for g in games
-    ]
-    game_details = await asyncio.gather(*detail_tasks, return_exceptions=True)
-
-    match_tasks = []
-    valid_details = []
-    for detail in game_details:
+    fetched = await asyncio.gather(
+        *[liiga_client.get_game_detail(season, g["id"]) for g in games],
+        return_exceptions=True,
+    )
+    details: list[dict] = []
+    for detail in fetched:
         if isinstance(detail, Exception):
             log.error("game detail failed: %s", detail)
             continue
-        game_obj = detail.get("game", {})
-        gid = game_obj.get("id")
-        if gid is None:
+        if (detail.get("game") or {}).get("id") is None:
             continue
-        valid_details.append(detail)
-        match_tasks.append(
-            liiga_client.get_match_stats_for_game(detail, season, gid)
-        )
+        details.append(detail)
+    return details
 
-    match_results = await asyncio.gather(*match_tasks, return_exceptions=True)
+
+def _unfinished_game_ids(details: list[dict]) -> set[int]:
+    """Games that have not ended. Their log rows are not season totals yet."""
+    ids: set[int] = set()
+    for detail in details:
+        game = detail.get("game") or {}
+        gid = game.get("id")
+        if gid is not None and not game.get("ended"):
+            ids.add(gid)
+    return ids
+
+
+def _any_live_game(details: list[dict]) -> bool:
+    """True when a game has started and not ended. Only then are logs partial."""
+    return any(
+        (detail.get("game") or {}).get("started") and not (detail.get("game") or {}).get("ended")
+        for detail in details
+    )
+
+
+async def _build_played_round(
+    details: list[dict],
+    season: int,
+    stats_map: dict[int, dict],
+    stats_tournament: str,
+    skip_game_ids: set[int],
+    live_games: bool,
+) -> list[dict]:
+    """Fetch match stats for played games and build roster views."""
+    if not details:
+        return []
+
+    match_results = await asyncio.gather(
+        *[
+            liiga_client.get_match_stats_for_game(
+                detail, season, (detail.get("game") or {})["id"],
+            )
+            for detail in details
+        ],
+        return_exceptions=True,
+    )
 
     roster_views: list[dict] = []
-    for detail, match_res in zip(valid_details, match_results):
+    for detail, match_res in zip(details, match_results):
         gid = (detail.get("game") or {}).get("id")
         if isinstance(match_res, Exception):
             log.error("match stats failed for game %s: %s", gid, match_res)
@@ -80,6 +107,9 @@ async def _build_played_round(
         else:
             ms_map = match_res if isinstance(match_res, dict) else {}
         try:
+            await liiga_client.merge_fresher_skater_logs(
+                detail, season, stats_map, stats_tournament, skip_game_ids, live_games,
+            )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, ms_map, stats_tournament=stats_tournament,
             )
@@ -90,28 +120,21 @@ async def _build_played_round(
 
 
 async def _build_upcoming_round(
-    games: list[dict],
+    details: list[dict],
     season: int,
     stats_map: dict[int, dict],
     stats_tournament: str,
+    skip_game_ids: set[int],
+    live_games: bool,
 ) -> list[dict]:
-    """Fetch details for upcoming games and build roster views (no match stat subtraction)."""
-    if not games:
-        return []
-
-    detail_tasks = [
-        liiga_client.get_game_detail(season, g["id"])
-        for g in games
-    ]
-    game_details = await asyncio.gather(*detail_tasks, return_exceptions=True)
-
+    """Build roster views for upcoming games (no match stat subtraction)."""
     roster_views: list[dict] = []
-    for detail in game_details:
-        if isinstance(detail, Exception):
-            log.error("game detail failed: %s", detail)
-            continue
+    for detail in details:
         gid = (detail.get("game") or {}).get("id")
         try:
+            await liiga_client.merge_fresher_skater_logs(
+                detail, season, stats_map, stats_tournament, skip_game_ids, live_games,
+            )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, stats_tournament=stats_tournament,
             )
@@ -245,9 +268,22 @@ async def build_context(
             if pid:
                 stats_map[pid] = s
 
+    prev_details, next_details = await asyncio.gather(
+        _load_game_details(prev_round_games, season),
+        _load_game_details(next_round_games, season),
+    )
+    # Collected before either round writes the shared season map, so a live
+    # game on one card is not rolled into the other card's totals.
+    all_details = prev_details + next_details
+    skip_game_ids = _unfinished_game_ids(all_details)
+    live_games = _any_live_game(all_details)
     prev_round_views, next_round_views = await asyncio.gather(
-        _build_played_round(prev_round_games, season, stats_map, stats_tournament),
-        _build_upcoming_round(next_round_games, season, stats_map, stats_tournament),
+        _build_played_round(
+            prev_details, season, stats_map, stats_tournament, skip_game_ids, live_games,
+        ),
+        _build_upcoming_round(
+            next_details, season, stats_map, stats_tournament, skip_game_ids, live_games,
+        ),
     )
     playoff_series_phases = await series_task if series_task else []
 

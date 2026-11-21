@@ -25,6 +25,11 @@ ARMALIS_ID = 61011727
 SIDES = ("homeTeam", "awayTeam")
 LINE_FORWARD_ROLES = {"LEFT_WING", "CENTER", "RIGHT_WING"}
 YOUNG_BIRTH_YEAR = 2007  # season 2027 U20 fallback: born this year or later
+# Game-log dates: three played games well in the past and one scheduled game.
+PAST_1 = "2020-09-04T15:30:00Z"
+PAST_2 = "2020-11-14T15:00:00Z"
+PAST_3 = "2020-11-18T16:30:00Z"
+FUTURE = "2099-11-19T16:30:00Z"
 
 
 def _load(name: str):
@@ -652,7 +657,7 @@ class RosterViewTests(unittest.TestCase):
             "awayTeamPlayers": [],
         }
 
-        async def fake_log(pid: int, _season: int) -> dict:
+        async def fake_log(pid: int, _season: int, live: bool = False) -> dict:
             ice = {1: 3600, 2: 0, 3: 800}[pid]
             return {"regular": [{
                 "gameId": 42,
@@ -679,6 +684,397 @@ class RosterViewTests(unittest.TestCase):
         self.assertFalse(result[2]["played"])
         self.assertEqual(result[2]["timeOnIce"], 0)
         self.assertTrue(result[3]["played"])
+
+    def test_stale_summed_stats_take_the_assist_from_the_game_log(self) -> None:
+        """Summed season totals can lag a finished game that the log already has."""
+        player_id = 40175796
+        detail = {
+            "game": {
+                "id": 2701463,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0},
+                "awayTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0},
+            },
+            "homeTeamPlayers": [
+                {
+                    "id": player_id,
+                    "firstName": "Max",
+                    "lastName": "Laatikainen",
+                    "role": "DEFENSEMAN",
+                    "roleCode": "OP",
+                    "line": 2,
+                    "jersey": 4,
+                }
+            ],
+            "awayTeamPlayers": [],
+        }
+        stale = {
+            player_id: {
+                "playerId": player_id,
+                "games": 2,
+                "goals": 0,
+                "assists": 0,
+                "points": 0,
+                "plusMinus": -2,
+                "penaltyMinutes": 0,
+                "timeOnIce": 883,
+                "timeOnIceAvg": 441.5,
+                "shotsIntoGoal": 3,
+                "expectedGoals": 0.11,
+            }
+        }
+        log = {"regular": [
+            {"gameId": 2701341, "date": PAST_1, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": -2, "timeOnIce": 174, "shotsIntoGoal": 0},
+            {"gameId": 2701454, "date": PAST_2, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 709, "shotsIntoGoal": 3},
+            {"gameId": 2701456, "date": PAST_3, "goals": 0, "assists": 1, "totalPoints": 1,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 945, "shotsIntoGoal": 3},
+            {"gameId": 2701463, "date": FUTURE, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 0, "shotsIntoGoal": None},
+        ]}
+
+        async def fake_log(pid: int, _season: int, live: bool = False) -> dict:
+            self.assertEqual(pid, player_id)
+            return log
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, stale, liiga_client.TOURNAMENT_REGULAR,
+                )
+            return liiga_client.build_roster_view(
+                detail, stale, 2027, stats_tournament=liiga_client.TOURNAMENT_REGULAR,
+            )
+
+        shown = _find(asyncio.run(run()), player_id)
+        self.assertEqual(shown.get("games"), 3)
+        self.assertEqual(shown.get("goals"), 0)
+        self.assertEqual(shown.get("assists"), 1)
+        self.assertEqual(shown.get("points"), 1)
+        self.assertEqual(shown.get("plusMinus"), -1)
+        self.assertEqual(stale[player_id]["expectedGoals"], 0.11)
+        self.assertTrue(shown.get("expectedGoalsPartial"))
+        self.assertIsNone(shown.get("expectedGoalsDiff"))
+
+    def test_live_game_stays_on_the_pill_and_out_of_shared_season_totals(self) -> None:
+        """A started game is already on the match pill, so its log row is not a season total."""
+        player_id = 40175796
+        live_id = 2701456
+        next_id = 2701490
+        player = {
+            "id": player_id,
+            "firstName": "Max",
+            "lastName": "Laatikainen",
+            "role": "DEFENSEMAN",
+            "roleCode": "OP",
+            "line": 2,
+            "jersey": 4,
+        }
+        live = {
+            "game": {
+                "id": live_id,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "started": True,
+                "ended": False,
+                "homeTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 1},
+                "awayTeam": {"teamName": "JYP", "teamId": "JYP", "goals": 0},
+            },
+            "homeTeamPlayers": [player],
+            "awayTeamPlayers": [],
+        }
+        upcoming = {
+            "game": {
+                "id": next_id,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0},
+                "awayTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0},
+            },
+            "homeTeamPlayers": [dict(player)],
+            "awayTeamPlayers": [],
+        }
+        stats = {
+            player_id: {
+                "games": 1,
+                "goals": 0,
+                "assists": 0,
+                "points": 0,
+                "plusMinus": 0,
+                "penaltyMinutes": 0,
+                "timeOnIce": 100,
+                "timeOnIceAvg": 100,
+                "shotsIntoGoal": 1,
+                "expectedGoals": 0.2,
+            }
+        }
+        log = {"regular": [
+            {"gameId": 2701341, "date": PAST_1, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 100, "shotsIntoGoal": 1},
+            {"gameId": 2701454, "date": PAST_2, "goals": 0, "assists": 1, "totalPoints": 1,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 200, "shotsIntoGoal": 2},
+            {"gameId": live_id, "date": PAST_3, "goals": 1, "assists": 0, "totalPoints": 1,
+             "penaltyMinutes": 2, "plusMinus": 1, "timeOnIce": 300, "shotsIntoGoal": 1},
+        ]}
+        skip = {live_id, next_id}
+        seen_live: list[bool] = []
+
+        async def fake_log(_pid: int, _season: int, live: bool = False) -> dict:
+            seen_live.append(live)
+            return log
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    upcoming, 2027, stats, liiga_client.TOURNAMENT_REGULAR, skip,
+                )
+                await liiga_client.merge_fresher_skater_logs(
+                    live, 2027, stats, liiga_client.TOURNAMENT_REGULAR, skip,
+                )
+            return liiga_client.build_roster_view(
+                live,
+                stats,
+                2027,
+                {player_id: _blank_match(goals=1, assists=0, points=1, played=True)},
+                stats_tournament=liiga_client.TOURNAMENT_REGULAR,
+            )
+
+        shown = _find(asyncio.run(run()), player_id)
+        self.assertEqual(shown.get("games"), 2)
+        self.assertEqual(shown.get("goals"), 0)
+        self.assertEqual(shown.get("assists"), 1)
+        self.assertEqual(shown.get("points"), 1)
+        self.assertEqual(shown.get("plusMinus"), 1)
+        self.assertEqual(shown.get("matchGoals"), 1)
+        self.assertEqual(stats[player_id]["goals"], 0)
+        self.assertEqual(stats[player_id]["games"], 2)
+        # The started game uses the short cache. The scheduled game alone does not.
+        self.assertTrue(any(seen_live), "a started game must use the short log cache")
+
+    def test_scheduled_game_does_not_switch_logs_to_the_short_cache(self) -> None:
+        player_id = 40175796
+        detail = {
+            "game": {"id": 2701490, "season": 2027, "serie": "RUNKOSARJA",
+                     "started": False, "ended": False},
+            "homeTeamPlayers": [],
+            "awayTeamPlayers": [{"id": player_id, "role": "DEFENSEMAN", "roleCode": "OP",
+                                 "firstName": "Max", "lastName": "Laatikainen", "jersey": 4}],
+        }
+        seen_live: list[bool] = []
+
+        async def fake_log(_pid: int, _season: int, live: bool = False) -> dict:
+            seen_live.append(live)
+            return {"regular": []}
+
+        async def run() -> None:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, {}, liiga_client.TOURNAMENT_REGULAR, {2701490},
+                )
+
+        asyncio.run(run())
+        self.assertEqual(seen_live, [False])
+
+    def test_dressed_game_without_ice_time_counts_but_a_scheduled_game_does_not(self) -> None:
+        """The summed feed counts every dressed game; a future row is not a game yet."""
+        totals = liiga_client.skater_counting_from_log([
+            {"gameId": 1, "date": PAST_1, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 600, "shotsIntoGoal": 1},
+            {"gameId": 2, "date": PAST_2, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 0, "shotsIntoGoal": 0},
+            {"gameId": 3, "date": FUTURE, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 0, "shotsIntoGoal": None},
+        ])
+        self.assertEqual(totals["games"], 2)
+        self.assertEqual(totals["timeOnIceAvg"], 300)
+
+    def test_live_game_log_is_not_reused_after_the_game_ends(self) -> None:
+        key = "player-games-777-2027"
+        clock = [1000.0]
+        calls = [0]
+
+        async def fake_get(_path, params=None):
+            calls[0] += 1
+            return {"regular": [], "n": calls[0]}
+
+        async def run() -> list[int]:
+            seen: list[int] = []
+            with (
+                patch.object(liiga_client, "_get", fake_get),
+                patch.object(liiga_client.time, "time", lambda: clock[0]),
+            ):
+                # Fetched during the game. A second live read inside the window
+                # reuses it, then the game ends and a normal read follows.
+                seen.append((await liiga_client.get_player_game_log(777, 2027, live=True))["n"])
+                clock[0] = 1010.0
+                seen.append((await liiga_client.get_player_game_log(777, 2027, live=True))["n"])
+                clock[0] = 1030.0
+                seen.append((await liiga_client.get_player_game_log(777, 2027))["n"])
+                clock[0] = 1100.0
+                seen.append((await liiga_client.get_player_game_log(777, 2027))["n"])
+                # A normal copy is reused by normal reads, but a live read
+                # will not take one that is older than the live window.
+                clock[0] = 1200.0
+                seen.append((await liiga_client.get_player_game_log(777, 2027))["n"])
+                seen.append((await liiga_client.get_player_game_log(777, 2027, live=True))["n"])
+            return seen
+
+        liiga_client._cache.pop(key, None)
+        liiga_client._log_fetched_live.pop(key, None)
+        try:
+            seen = asyncio.run(run())
+        finally:
+            liiga_client._cache.pop(key, None)
+            liiga_client._log_fetched_live.pop(key, None)
+        # 1: live fetch at t=1000.
+        # 1: a second live read at t=1010 reuses it.
+        # 1: a normal read at t=1030 reuses it (inside the live window).
+        # 2: at t=1100 the live copy has expired, so a normal read refetches.
+        # 2: at t=1200 a normal read reuses that copy.
+        # 3: a live read at t=1200 refuses the 100 s old copy and refetches.
+        self.assertEqual(seen, [1, 1, 1, 2, 2, 3])
+
+    def test_played_game_with_lagging_feed_shows_xge_after_removing_that_game(self) -> None:
+        """Yesterday's card: the log has the game, the summed feed is one game behind.
+
+        After the card removes its own game, goals and xG cover the same games,
+        so xGE is a value, not a dash.
+        """
+        player_id = 40175796
+        jyp_id = 2701456
+        player = {
+            "id": player_id,
+            "firstName": "Max",
+            "lastName": "Laatikainen",
+            "role": "DEFENSEMAN",
+            "roleCode": "OP",
+            "line": 2,
+            "jersey": 4,
+        }
+        detail = {
+            "game": {
+                "id": jyp_id,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "started": True,
+                "ended": True,
+                "homeTeam": {"teamName": "JYP", "teamId": "JYP", "goals": 0},
+                "awayTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0},
+            },
+            "homeTeamPlayers": [],
+            "awayTeamPlayers": [player],
+        }
+        stats = {
+            player_id: {
+                "games": 2,
+                "goals": 0,
+                "assists": 0,
+                "points": 0,
+                "plusMinus": -2,
+                "penaltyMinutes": 0,
+                "timeOnIce": 883,
+                "timeOnIceAvg": 441.5,
+                "shotsIntoGoal": 3,
+                "expectedGoals": 0.11,
+            }
+        }
+        log = {"regular": [
+            {"gameId": 2701341, "date": PAST_1, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": -2, "timeOnIce": 174, "shotsIntoGoal": 0},
+            {"gameId": 2701454, "date": PAST_2, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 709, "shotsIntoGoal": 3},
+            {"gameId": jyp_id, "date": PAST_3, "goals": 0, "assists": 1, "totalPoints": 1,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 945, "shotsIntoGoal": 3},
+        ]}
+
+        async def fake_log(_pid: int, _season: int, live: bool = False) -> dict:
+            return log
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, stats, liiga_client.TOURNAMENT_REGULAR,
+                )
+            return liiga_client.build_roster_view(
+                detail,
+                stats,
+                2027,
+                {player_id: _blank_match(assists=1, points=1, plusMinus=1, played=True)},
+                stats_tournament=liiga_client.TOURNAMENT_REGULAR,
+            )
+
+        shown = _find(asyncio.run(run()), player_id)
+        self.assertEqual(shown.get("games"), 2)
+        self.assertEqual(shown.get("assists"), 0)
+        self.assertEqual(shown.get("points"), 0)
+        self.assertFalse(shown.get("expectedGoalsPartial"))
+        self.assertAlmostEqual(shown.get("expectedGoalsDiff"), -0.11, places=4)
+
+    def test_unstarted_game_with_newer_log_still_shows_dash(self) -> None:
+        """Tappara card: the 0+1 is in the log, but xG does not cover it yet."""
+        player_id = 40175796
+        detail = {
+            "game": {
+                "id": 2701463,
+                "season": 2027,
+                "serie": "RUNKOSARJA",
+                "ended": False,
+                "homeTeam": {"teamName": "Tappara", "teamId": "TAP", "goals": 0},
+                "awayTeam": {"teamName": "Sport", "teamId": "SPO", "goals": 0},
+            },
+            "homeTeamPlayers": [],
+            "awayTeamPlayers": [{
+                "id": player_id, "firstName": "Max", "lastName": "Laatikainen",
+                "role": "DEFENSEMAN", "roleCode": "OP", "line": 2, "jersey": 4,
+            }],
+        }
+        stats = {player_id: {
+            "games": 2, "goals": 0, "assists": 0, "points": 0, "plusMinus": -2,
+            "penaltyMinutes": 0, "timeOnIce": 883, "timeOnIceAvg": 441.5,
+            "shotsIntoGoal": 3, "expectedGoals": 0.11,
+        }}
+        # The summed feed covers 2701341 and 2701454. The log also has the
+        # finished JYP game (2701456), which the feed has not rolled up yet.
+        log = {"regular": [
+            {"gameId": 2701341, "date": PAST_1, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": -2, "timeOnIce": 174, "shotsIntoGoal": 0},
+            {"gameId": 2701454, "date": PAST_2, "goals": 0, "assists": 0, "totalPoints": 0,
+             "penaltyMinutes": 0, "plusMinus": 0, "timeOnIce": 709, "shotsIntoGoal": 3},
+            {"gameId": 2701456, "date": PAST_3, "goals": 0, "assists": 1, "totalPoints": 1,
+             "penaltyMinutes": 0, "plusMinus": 1, "timeOnIce": 945, "shotsIntoGoal": 3},
+        ]}
+
+        async def fake_log(_pid: int, _season: int, live: bool = False) -> dict:
+            return log
+
+        async def run() -> dict:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, stats, liiga_client.TOURNAMENT_REGULAR,
+                    {2701463},
+                )
+            return liiga_client.build_roster_view(
+                detail, stats, 2027, stats_tournament=liiga_client.TOURNAMENT_REGULAR,
+            )
+
+        shown = _find(asyncio.run(run()), player_id)
+        self.assertEqual(shown.get("games"), 3)
+        self.assertEqual(shown.get("points"), 1)
+        self.assertTrue(shown.get("expectedGoalsPartial"))
+        self.assertIsNone(shown.get("expectedGoalsDiff"))
+
+    def test_shorter_game_log_does_not_replace_summed_stats(self) -> None:
+        totals = liiga_client.skater_counting_from_log([
+            {"goals": 0, "assists": 1, "totalPoints": 1, "timeOnIce": 400,
+             "penaltyMinutes": 0, "plusMinus": 1, "shotsIntoGoal": 1},
+        ])
+        self.assertFalse(liiga_client._log_counting_is_fresher(
+            totals, {"games": 4, "goals": 2, "assists": 3, "points": 5},
+        ))
 
 
 if __name__ == "__main__":
