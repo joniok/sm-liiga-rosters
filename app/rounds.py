@@ -68,12 +68,21 @@ def _unfinished_game_ids(details: list[dict]) -> set[int]:
     return ids
 
 
+def _any_live_game(details: list[dict]) -> bool:
+    """True when a game has started and not ended. Only then are logs partial."""
+    return any(
+        (detail.get("game") or {}).get("started") and not (detail.get("game") or {}).get("ended")
+        for detail in details
+    )
+
+
 async def _build_played_round(
     details: list[dict],
     season: int,
     stats_map: dict[int, dict],
     stats_tournament: str,
     skip_game_ids: set[int],
+    live_games: bool,
 ) -> list[dict]:
     """Fetch match stats for played games and build roster views."""
     if not details:
@@ -99,7 +108,7 @@ async def _build_played_round(
             ms_map = match_res if isinstance(match_res, dict) else {}
         try:
             await liiga_client.merge_fresher_skater_logs(
-                detail, season, stats_map, stats_tournament, skip_game_ids,
+                detail, season, stats_map, stats_tournament, skip_game_ids, live_games,
             )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, ms_map, stats_tournament=stats_tournament,
@@ -116,6 +125,7 @@ async def _build_upcoming_round(
     stats_map: dict[int, dict],
     stats_tournament: str,
     skip_game_ids: set[int],
+    live_games: bool,
 ) -> list[dict]:
     """Build roster views for upcoming games (no match stat subtraction)."""
     roster_views: list[dict] = []
@@ -123,7 +133,7 @@ async def _build_upcoming_round(
         gid = (detail.get("game") or {}).get("id")
         try:
             await liiga_client.merge_fresher_skater_logs(
-                detail, season, stats_map, stats_tournament, skip_game_ids,
+                detail, season, stats_map, stats_tournament, skip_game_ids, live_games,
             )
             view = liiga_client.build_roster_view(
                 detail, stats_map, season, stats_tournament=stats_tournament,
@@ -264,13 +274,15 @@ async def build_context(
     )
     # Collected before either round writes the shared season map, so a live
     # game on one card is not rolled into the other card's totals.
-    skip_game_ids = _unfinished_game_ids(prev_details + next_details)
+    all_details = prev_details + next_details
+    skip_game_ids = _unfinished_game_ids(all_details)
+    live_games = _any_live_game(all_details)
     prev_round_views, next_round_views = await asyncio.gather(
         _build_played_round(
-            prev_details, season, stats_map, stats_tournament, skip_game_ids,
+            prev_details, season, stats_map, stats_tournament, skip_game_ids, live_games,
         ),
         _build_upcoming_round(
-            next_details, season, stats_map, stats_tournament, skip_game_ids,
+            next_details, season, stats_map, stats_tournament, skip_game_ids, live_games,
         ),
     )
     playoff_series_phases = await series_task if series_task else []

@@ -356,6 +356,7 @@ async def merge_fresher_skater_logs(
     stats_map: dict,
     stats_tournament: str = TOURNAMENT_REGULAR,
     skip_game_ids: set[int] | None = None,
+    live_games: bool = False,
 ) -> None:
     """Fill stale summed skater totals from the game log.
 
@@ -390,8 +391,9 @@ async def merge_fresher_skater_logs(
         return
 
     sem = asyncio.Semaphore(25)
-    # Any unfinished game on the page puts a partial row in these logs.
-    live = bool(skip)
+    # Only a game that has started and not ended puts a partial row in the
+    # logs. Scheduled games do not, so they must not disable the long cache.
+    live = live_games or (bool(game.get("started")) and not game.get("ended"))
     now = datetime.now(FI_TZ)
 
     async def _one(pid: int) -> tuple[int, dict | None]:
@@ -696,8 +698,9 @@ async def get_match_stats_for_game(
     sem = asyncio.Semaphore(25)
 
     log_key = _game_log_key_for_detail(game_detail)
-    # An unfinished game's row is partial; keep it out of the long cache.
-    live = not (game_detail.get("game") or {}).get("ended")
+    # A started, unfinished game's row is partial; keep it out of the long cache.
+    game_info = game_detail.get("game") or {}
+    live = bool(game_info.get("started")) and not game_info.get("ended")
 
     async def _fetch_one(pid: int) -> tuple[int, dict | None]:
         async with sem:

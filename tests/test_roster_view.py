@@ -852,7 +852,32 @@ class RosterViewTests(unittest.TestCase):
         self.assertEqual(shown.get("matchGoals"), 1)
         self.assertEqual(stats[player_id]["goals"], 0)
         self.assertEqual(stats[player_id]["games"], 2)
-        self.assertTrue(seen_live and all(seen_live), "live games must use the short log cache")
+        # The started game uses the short cache. The scheduled game alone does not.
+        self.assertTrue(any(seen_live), "a started game must use the short log cache")
+
+    def test_scheduled_game_does_not_switch_logs_to_the_short_cache(self) -> None:
+        player_id = 40175796
+        detail = {
+            "game": {"id": 2701490, "season": 2027, "serie": "RUNKOSARJA",
+                     "started": False, "ended": False},
+            "homeTeamPlayers": [],
+            "awayTeamPlayers": [{"id": player_id, "role": "DEFENSEMAN", "roleCode": "OP",
+                                 "firstName": "Max", "lastName": "Laatikainen", "jersey": 4}],
+        }
+        seen_live: list[bool] = []
+
+        async def fake_log(_pid: int, _season: int, live: bool = False) -> dict:
+            seen_live.append(live)
+            return {"regular": []}
+
+        async def run() -> None:
+            with patch.object(liiga_client, "get_player_game_log", fake_log):
+                await liiga_client.merge_fresher_skater_logs(
+                    detail, 2027, {}, liiga_client.TOURNAMENT_REGULAR, {2701490},
+                )
+
+        asyncio.run(run())
+        self.assertEqual(seen_live, [False])
 
     def test_dressed_game_without_ice_time_counts_but_a_scheduled_game_does_not(self) -> None:
         """The summed feed counts every dressed game; a future row is not a game yet."""
